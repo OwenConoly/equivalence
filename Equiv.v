@@ -5,18 +5,18 @@ Require Import coqutil.Datatypes.PrimitivePair coqutil.Datatypes.HList.
 Require Import coqutil.Decidable.
 Require Import coqutil.Tactics.fwd.
 Require Import coqutil.Map.Properties.
-Require Import bedrock2.Syntax coqutil.Map.Interface coqutil.Map.OfListWord.
+Require Import bedrock2_det.bedrock2.Syntax coqutil.Map.Interface coqutil.Map.OfListWord.
 Require Import BinIntDef coqutil.Word.Interface coqutil.Word.Bitwidth.
-Require Import bedrock2.MetricLogging.
-Require Export bedrock2.Memory.
+Require Import bedrock2_det.bedrock2.MetricLogging.
+Require Export bedrock2_det.bedrock2.Memory.
 Require Import Coq.Logic.ClassicalFacts.
 Require Import Coq.Classes.Morphisms.
 
-  Require Import Coq.Wellfounded.Union.
-  Require Import Relation_Operators.
-  Require Import Relation_Definitions.
-  Require Import Transitive_Closure.
-  Require Import Coq.Logic.ChoiceFacts.
+Require Import Coq.Wellfounded.Union.
+Require Import Relation_Operators.
+Require Import Relation_Definitions.
+Require Import Transitive_Closure.
+Require Import Coq.Logic.ChoiceFacts.
 
 (* not sure where to put these lemmas *)
 Lemma align_trace_cons {T} x xs cont t (H : xs = List.app cont t) : @List.cons T x xs = List.app (cons x cont) t.
@@ -419,11 +419,14 @@ Module exec. Section WithEnv.
   Context (e: env).
   Local Notation metrics := MetricLog.
 
+  Implicit Types post : trace -> io_trace -> mem -> locals -> metrics -> Prop. (* COQBUG(unification finds Type instead of Prop and fails to downgrade *)
+  Implicit Types fpost : PickSp -> trace -> io_trace -> mem -> locals -> metrics -> Prop.
+
   Section WithDet.
     Context (salloc_det : bool).
     Context {pick_sp : PickSp}.
 
-  Implicit Types post : trace -> io_trace -> mem -> locals -> metrics -> Prop. (* COQBUG(unification finds Type instead of Prop and fails to downgrade *)
+    
 
   (*I really want to do the semantics like this:
     cmd -> io_trace -> mem -> locals -> metrics ->
@@ -766,10 +769,6 @@ Module exec. Section WithEnv.
   | bprefix : forall s1 s2 k t m l mc,
       prefix (s1, k, t, m, l, mc) (sseq s1 s2, k, t, m, l, mc).
 
-  (*Definition comes_right_after_or_prefix := union _ prefix comes_right_after.*)
-  
-  (*Definition lifted_comes_right_after_or_prefix := lift comes_right_after_or_prefix other_inclusion.*)
-
   Definition repeated_prefix := clos_trans _ prefix.
   Definition comes_after := clos_trans _ comes_right_after.
   Definition lifted_comes_after := lift comes_after other_inclusion.
@@ -1090,15 +1089,6 @@ Module exec. Section WithEnv.
     | Some (s, k, t, m, l, mc) => Some (sseq s s2, k, t, m, l, mc)
     | None => None
     end.
-
-  (*Lemma simple_execute_with_tail f s2 n :
-    f n <> None ->
-    execute_with_tail f s2 n =
-      let '(s, k, t, m, l, mc) := f n in Some (sseq s s2, k, t, m, l, mc).
-  Proof.
-    intros H. cbv [execute_with_tail]. destr_sstate (f n).
-    destruct s; try reflexivity. simpl in H. congruence.
-  Qed.*)
 
   Lemma step_until_stuck f n :
     possible_execution f ->
@@ -1659,9 +1649,6 @@ Module exec. Section WithEnv.
     intros. apply lifted_Acc. eapply steps_Acc'; eassumption.
   Qed.
 
-  Definition successful_execution f post :=
-    forall i, step_ostate f i \/ o1 (state_satisfies post) (f i) \/ f i = None /\ f (S i) = None.
-
   (*it is such a pain that some of these things are stated
     in terms of option types and some are not. I should be consistent.*)
   Lemma stuck_unique f i j :
@@ -1726,20 +1713,6 @@ Module exec. Section WithEnv.
     - right. destr_sstate sj. fwd. reflexivity.
     - left. assumption.
   Qed.
-  
-  (*Lemma ps_suc f post :
-    possible_execution f -> satisfies f post -> successful_execution f post.
-  Proof.
-    intros H1 H2 n. assert (H5 := H1 n). destruct H2 as [m H2]. destruct H5 as [H5|[H5|H5]].
-    - left. assumption.
-    - right. left. destruct (f m) as [fm|] eqn:Efm; [|destruct H2].
-      destruct H5 as [H3 H4]. destruct (f n) as [fn|] eqn:Efn; [|destruct H3].
-      specialize satisfies_stuck with (1 := H2). intros H6.
-      specialize stuck_unique with (1 := H1). intros H7. specialize (H7 m n).
-      rewrite Efm, Efn in H7. specialize H7 with (1 := H6) (2 := H3). subst.
-      rewrite Efm in Efn. inversion Efn. subst. assumption.
-    - right. right. assumption.
-  Qed.*)
 
   Lemma weaken: forall s k t m l mc post1,
       exec s k t m l mc post1 ->
@@ -2250,31 +2223,6 @@ Module exec. Section WithEnv.
       + fwd. left. assumption.
   Qed.
 
-  (*Lemma get_long_trace_small_enough f fuel :
-    possible_execution f ->
-    forall i, i < get_long_trace f fuel -> step_ostate f i.
-  Proof.
-    intros H i Hi. induction fuel.
-    - simpl in Hi. lia.
-    - simpl in Hi. destruct (f (S fuel)) eqn:EfSf.
-      + eapply step_until_stuck; eauto. rewrite EfSf. congruence.
-      + auto.
-  Qed.
-  
-  Lemma get_long_trace_big_enough f fuel :
-    possible_execution f ->
-    forall i,
-      get_long_trace f fuel < i <= fuel ->
-      f i = None.
-  Proof.
-    intros H i Hi. induction fuel.
-    - simpl in Hi. lia.
-    - simpl in Hi. destruct (f (S fuel)) eqn:EfSf.
-      + lia.
-      + assert (i = S fuel \/ i <= fuel) by lia. destruct H0; [subst; assumption|].
-        apply IHfuel. lia.
-  Qed.*)
-
   Lemma get_long_trace_works' f fuel :
     possible_execution f ->
     forall n,
@@ -2282,7 +2230,7 @@ Module exec. Section WithEnv.
       exists k'', oget_trace (f (get_long_trace f fuel)) = k'' ++ oget_trace (f n).
   Proof.
     intros H n Hn. induction fuel.
-    - simpl. Check other_steps_extend_trace. destruct Hn as [Hn|Hn].
+    - simpl. destruct Hn as [Hn|Hn].
       + assert (Hle : O <= n) by lia. apply (other_steps_extend_trace _ _ _ H) in Hle.
         destruct Hle as [Hle|Hle].
         -- rewrite Hle. eexists. rewrite app_nil_r. reflexivity.
@@ -2346,7 +2294,6 @@ Module exec. Section WithEnv.
   Definition satisfies_det {pick_sp : PickSp} := satisfies true.
   Definition possible_execution_nondet {pick_sp : PickSp} := possible_execution false.
   Definition satisfies_nondet {pick_sp : PickSp} := satisfies false. Check predicts.
-  Implicit Types post : trace -> io_trace -> mem -> locals -> metrics -> Prop.
 
   Ltac destr_sstate st :=
     (*this is not exactly what I want, I want all of them to be named the same way...*)
@@ -2497,12 +2444,6 @@ Module exec. Section WithEnv.
         eapply predicts_ext. 2: eassumption. simpl. intros. rewrite rev_app_distr.
         rewrite rev_involutive. repeat rewrite <- app_assoc. rewrite H'. reflexivity.
   Qed.
-
-  Lemma forall_through_and {A : Type} (P Q : A -> Prop) :
-    (forall n, P n) /\ (forall n, Q n) <-> forall n, P n /\ Q n.
-  Proof.
-    split; intros; fwd; try tauto. 1: split; auto. split; intros n; specialize (H n); fwd; auto.
-  Qed.
   
   (*this is not true.  see what happens if f gets stuck deterministically but not nondeterministically*)
   (*Lemma poss_det_nondet {pick_sp : PickSp} f :
@@ -2579,19 +2520,19 @@ Module exec. Section WithEnv.
     good_stuck (pick_sp := pick_sp2) false st.
   Proof.
     intros H. induction H; econstructor; eauto; eapply @pick_sp_irrelevant_state_stuck with (pick_sp1 := _); eauto.
-  Qed.
+  Qed. Check exec.
   
-  Lemma nondet_to_det {pick_sp : PickSp} s k t m l mc post f :
+  Lemma nondet_to_det {pick_sp : PickSp} s k t m l mc fpost f :
     excluded_middle ->
     f O = Some (s, k, t, m, l, mc) ->
     (possible_execution_nondet f ->
      satisfies_nondet f (fun k' t' m' l' mc' =>
-                           exists k'',(*if I write forall k'' here, can I avoid the extends_trace lemmas?*)
+                           exists k'',
                              k' = k'' ++ k /\
                                (predicts (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
-                                post k' t' m' l' mc'))) ->
+                                fpost pick_sp k' t' m' l' mc'))) ->
     possible_execution_det f ->
-    satisfies_det f post.
+    satisfies_det f (fpost pick_sp).
   Proof.
     intros em HfO H Hfposs. assert (nondet_or_not := em (possible_execution_nondet f)).
     destruct nondet_or_not as [nondet|not].
@@ -2632,32 +2573,6 @@ Module exec. Section WithEnv.
     - fwd. apply H2 in H1p0. destruct H1p0.
   Qed.
 
-  Check invert_seq.
-  
-  (*Lemma trace_gets_longer_seq {pick_sp : PickSp} f i :
-    if all executions starting with s1 and s2 eventually get a longer trace,
-    then the same goes for sseq s1 s2.*)
-  
-
-  (*Lemma trace_gets_longer {pick_sp : PickSp} f i :
-    possible_execution_nondet f ->
-    (forall j, f j <> None) ->
-    exists j, length (val_def nil (option_map get_trace (f j))) > length (val_def nil (option_map get_trace (f i))).
-  Proof.
-    intros H1 H2. destruct (f i) as [fi|] eqn:E.
-    2: { apply H2 in E. destruct E. }
-    destr_sstate fi. subst. revert i k t m l mc E.
-    induction s; intros.
-    all: assert (steps := no_nones_steps f H1 H2).
-    all: assert (stepi := steps i); assert (stepSi := steps (S i)).
-    all: cbv [step_ostate] in stepi, stepSi.
-    all: destruct (f (S i)) as [fSi|] eqn:E1; [|apply H2 in E1; destruct E1].
-    all: destruct (f (S (S i))) as [fSSi|] eqn:E2; [|apply H2 in E2; destruct E2].
-    all: destr_sstate fSi; destr_sstate fSSi; rewrite E in *; subst; simpl in *.
-    { inversion stepi; subst. }
-    all: try solve [inversion stepi; subst; inversion stepSi].
-    - inversion stepi. subst. Admitted.*)
-
   Lemma pick_sp_works {pick_sp : PickSp} f :
     possible_execution_nondet f ->
     possible_execution_det (pick_sp := (fun k => match trace_with_length f (S (length k)) with
@@ -2682,8 +2597,12 @@ Module exec. Section WithEnv.
       apply nondet_stuck_det_stuck. eapply pick_sp_irrelevant_state_stuck. eassumption.
     - auto.
   Qed.
+  (*forall i,
+    predicts (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
+    possible_execution_det (pick_sp := pick_sp)*)
+  Print state_satisfies.
 
-  Lemma det_to_nondet {pick_sp : PickSp} s k t m l mc post f :
+  Lemma det_to_nondet_terminates {pick_sp : PickSp} s k t m l mc fpost f :
     f O = Some (s, k, t, m, l, mc) ->
     possible_execution_nondet f ->
     let pick_sp' := fun k => match trace_with_length f (S (length k)) with
@@ -2691,12 +2610,12 @@ Module exec. Section WithEnv.
                                                   | _ => word.of_Z 0
                                                   end in
     (possible_execution_det (pick_sp := pick_sp') f ->
-     satisfies_det (pick_sp := pick_sp') f post) ->
-    satisfies_nondet f (fun k' t' m' l' mc' =>
-                          exists k'',(*if I write forall k'' here, can I avoid the extends_trace lemmas?*)
-                            k' = k'' ++ k /\
-                              (predicts (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
-                               post k' t' m' l' mc')).
+     satisfies_det (pick_sp := pick_sp') f (fpost pick_sp')) ->
+    exists i,
+      match (f i) with
+      | Some st => good_stuck false st \/ get_scmd st = sskip
+      | None => False
+      end.
   Proof.
     intros HfO Hposs pick_sp'. intros H. assert (Hdet := pick_sp_works _ Hposs).
     specialize (H Hdet). destruct H as [n H]. exists n.
@@ -2707,8 +2626,8 @@ Module exec. Section WithEnv.
     rewrite step_ostates_equiv in Hsteps. fwd. rewrite HfO, Efn in Hstepsp1p0.
     simpl in Hstepsp1p0. subst. rewrite HfO in Hstepsp1p1. simpl in Hstepsp1p1.
     destruct H as [H|H].
-    + (*both succeed*) fwd. left. intuition. eexists; eauto.
-    + (*both good stuck*) right. assert (Hnone: f (S n) = None).
+    + (*both succeed*) fwd. right. reflexivity.
+    + (*both good stuck*) left. assert (Hnone: f (S n) = None).
       { specialize (Hdet n). destruct Hdet as [Hdet|[Hdet|Hdet]].
         - exfalso. eapply @good_stuck_stuck with (pick_sp := _); try eassumption.
           cbv [step_ostate] in Hdet.
@@ -2727,7 +2646,70 @@ Module exec. Section WithEnv.
       -- fwd. congruence.
   Qed.
 
-  Lemma det_equiv_nondet s k t m l mc post :
+  Lemma det_to_nondet' {pick_sp : PickSp} f s k t m l mc :
+    f O = Some (s, k, t, m, l, mc) ->
+    possible_execution_nondet f ->
+    (forall i,
+      match f i with
+      | Some st => exists k'', get_trace st = k'' ++ k /\
+                                 predicts (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'')
+      | None => True
+      end) ->
+    possible_execution_det f.
+  Proof.
+    intros H1 H2 H3. intros i. specialize (H2 i). destruct H2 as [H2 | [H2 | H2]].
+    - assert (H3i := H3 i). assert (H3Si := H3 (S i)). clear H3. left. cbv [step_ostate] in *.
+      destruct (f i) as [fi|]; [|destruct H2].
+      destruct (f (S i)) as [fSi|]; [|destruct H2]. simpl in *. fwd. destr_sstate fi. destr_sstate fSi.
+      subst. simpl in H3ip0, H3Sip0. clear H3ip1. induction H2; subst; try solve [econstructor; eauto].
+      + econstructor; eauto. intros _.
+      replace (consume_word a :: k''0 ++ k) with ((consume_word a :: k''0) ++ k) in H3Sip0 by reflexivity.
+      apply app_inv_tail in H3Sip0. subst. Check predicts_app_inv. simpl in H3Sip1.
+      apply predicts_app_inv in H3Sip1. destruct H3Sip1 as [_ H3Sip1]. inversion H3Sip1. subst.
+      specialize (H7 I). inversion H7. subst. rewrite app_nil_r. rewrite rev_involutive. reflexivity.
+      + econstructor. eapply IHstep; reflexivity.
+    - clear H3. right. left. cbv [stuck_ostate] in *. fwd. intuition. destruct (f i) as [fi|]; [|destruct H2p0].
+      apply nondet_stuck_det_stuck. assumption.
+    - right. right. assumption.
+  Qed.
+
+  Check other_steps_extend_trace.
+
+  Lemma det_to_nondet {pick_sp : PickSp} f fpost s k t m l mc :
+   f O = Some (s, k, t, m, l, mc) ->
+   possible_execution_nondet f ->
+   (forall pick_sp',
+       possible_execution_det (pick_sp := pick_sp') f ->
+       satisfies_det (pick_sp := pick_sp') f (fpost pick_sp')) ->
+   satisfies_nondet f (fun k' t' m' l' mc' =>
+                         exists k'',
+                           k' = k'' ++ k /\
+                             (predicts (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
+                              fpost pick_sp k' t' m' l' mc')).
+  Proof.
+    intros. Check det_to_nondet_terminates. specialize det_to_nondet_terminates with (1 := H) (2 := H0).
+    intros terminates. simpl in terminates. specialize terminates with (1 := H1 _). fwd. exists i.
+    rewrite E in *. destr_sstate p. subst. simpl. destruct terminates as [terminates|terminates].
+    - right. assumption.
+    - left. simpl in terminates. subst. split; [reflexivity|]. Check other_steps_extend_trace.
+      specialize other_steps_extend_trace with (1 := H0). intros tail. specialize (tail O i ltac:(lia)).
+      destruct tail as [tail|tail]; [congruence|]. rewrite E in *. fwd. simpl in tail. subst.
+      rewrite H. simpl. eexists. split; [reflexivity|]. intros Hpred. enough (H2: possible_execution_det f).
+      { rewrite H in E.  simpl in E. eapply satisfies_short; eauto. apply H1. assumption. }
+      eapply det_to_nondet'; eauto. intros j. assert (Hor : j <= i \/ i < j) by lia. destruct Hor as [Hle|Hlt].
+      + specialize other_steps_extend_trace with (1 := H0). intros H'. specialize H' with (1 := Hle).
+        destruct H' as [H'|H']; [congruence|].  rewrite E, H in H'. simpl in H'. fwd.
+        specialize (other_steps_extend_trace) with (1 := H0). intros H''. specialize (H'' O j ltac:(lia)).
+        destruct H'' as [H''|H'']; [rewrite H''; constructor|]. destruct (f j) as [fj|]; [|constructor].
+        fwd. eexists. rewrite H in *. simpl in *. split; [eassumption|]. rewrite H'' in H'.
+        rewrite app_assoc in H'. apply app_inv_tail in H'. subst. rewrite rev_app_distr in Hpred.
+        apply predicts_app_inv in Hpred. destruct Hpred as [Hpred _]. apply Hpred.
+      + Search (_ = None). Check stuck_stable. replace (f j) with (@None sstate); [constructor|].
+        symmetry. eapply stuck_stable; eauto. rewrite E. simpl. intros [st' H']. destr_sstate st'. subst.
+        inversion H'.
+  Qed.
+
+  Lemma det_equiv_nondet s k t m l mc fpost :
     excluded_middle ->
     (forall pick_sp f,
         f O = Some (s, k, t, m, l, mc) ->
@@ -2736,12 +2718,12 @@ Module exec. Section WithEnv.
                                       exists k'',
                                         k' = k'' ++ k /\
                                           (predicts (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
-                                           post k' t' m' l' mc')))
+                                           fpost pick_sp k' t' m' l' mc')))
     <->
       (forall pick_sp f,
           f O = Some (s, k, t, m, l, mc) ->
           possible_execution_det (pick_sp := pick_sp) f ->
-          satisfies_det (pick_sp := pick_sp) f post).
+          satisfies_det (pick_sp := pick_sp) f (fpost pick_sp)).
   Proof.
     intros. split.
     - intros. eapply nondet_to_det; eauto.
@@ -2751,9 +2733,7 @@ Module exec. Section WithEnv.
   Definition exec_det := @exec true.
   Definition exec_nondet := @exec false.
 
-  Check exec_to_step.
-
-  Lemma exec_det_equiv_nondet s k t m l mc post :
+  Lemma exec_det_equiv_nondet s k t m l mc fpost :
     excluded_middle ->
     FunctionalChoice_on (option sstate) (option sstate) ->
     ext_spec.ok ext_spec ->
@@ -2764,10 +2744,10 @@ Module exec. Section WithEnv.
                                     exists k'',
                                       k' = k'' ++ k /\
                                         (predicts (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
-                                         post k' t' m' l' mc')))
+                                         fpost pick_sp k' t' m' l' mc')))
     <->
       (forall pick_sp,
-          exec_det pick_sp s k t m l mc post).
+          exec_det pick_sp s k t m l mc (fpost pick_sp)).
   Proof.
     intros em choice ext_spec_ok word_ok mem_ok. split.
     - intros H pick_sp. apply step_to_exec; try assumption. revert pick_sp.
@@ -2776,122 +2756,6 @@ Module exec. Section WithEnv.
     - intros H pick_sp. apply step_to_exec; try assumption. revert pick_sp.
       rewrite det_equiv_nondet by assumption. intros pick_sp. apply exec_to_step; try assumption.
       apply H.
-  Qed.
-
-Lemma intersect: forall k t l m mc s post1,
-      exec s k t m l mc post1 ->
-      forall post2,
-        exec s k t m l mc post2 ->
-        exec s k t m l mc (fun k' t' m' l' mc' => post1 k' t' m' l' mc' /\ post2 k' t' m' l' mc').
-  Proof.
-    induction 1;
-      intros;
-      match goal with
-      | H: exec _ _ _ _ _ _ _ |- _ => inversion H; subst; clear H
-      end;
-      repeat match goal with
-             | H1: ?e = Some (?v1, ?mc1, ?t1), H2: ?e = Some (?v2, ?mc2, ?t2) |- _ =>
-               replace v2 with v1 in * by congruence;
-               replace mc2 with mc1 in * by congruence;
-               replace t2 with t1 in * by congruence; clear v2 mc2 t2 H2
-             end;
-      repeat match goal with
-             | H1: ?e = Some ?v1, H2: ?e = Some ?v2 |- _ =>
-               replace v2 with v1 in * by congruence; clear H2
-             end;
-      try solve [econstructor; eauto | exfalso; congruence].
-    
-    - econstructor. 1: eassumption.
-      intros.
-      rename H0 into Ex1, H13 into Ex2.
-      eapply weaken. 1: eapply H1. 1,2: eassumption.
-      1: eapply Ex2. 1,2: eassumption.
-      cbv beta.
-      intros. fwd.
-      lazymatch goal with
-      | A: map.split _ _ _, B: map.split _ _ _ |- _ =>
-        specialize @map.split_diff with (4 := A) (5 := B) as P
-      end.
-      edestruct P; try typeclasses eauto. 2: subst; eauto 10.
-      eapply anybytes_unique_domain; eassumption.
-    - econstructor.
-      + eapply IHexec. exact H5. (* not H *)
-      + simpl. intros *. intros [? ?]. eauto.
-    - eapply while_true. 1, 2: eassumption.
-      + eapply IHexec. exact H9. (* not H1 *)
-      + simpl. intros *. intros [? ?]. eauto.
-    - eapply call. 1, 2, 3: eassumption.
-      + eapply IHexec. exact H17. (* not H2 *)
-      + simpl. intros *. intros [? ?].
-        edestruct H3 as (? & ? & ? & ? & ?); [eassumption|].
-        edestruct H18 as (? & ? & ? & ? & ?); [eassumption|].
-        repeat match goal with
-               | H1: ?e = Some ?v1, H2: ?e = Some ?v2 |- _ =>
-                 replace v2 with v1 in * by congruence; clear H2
-               end.
-        eauto 10.
-    - pose proof ext_spec.unique_mGive_footprint as P.
-      specialize P with (1 := H1) (2 := H15).
-      destruct (map.split_diff P H H7). subst mKeep0 mGive0. clear H7.
-      eapply interact. 1,2: eassumption.
-      + eapply ext_spec.intersect; [ exact H1 | exact H15 ].
-      + simpl. intros *. intros [? ?].
-        edestruct H2 as (? & ? & ?); [eassumption|].
-        edestruct H16 as (? & ? & ?); [eassumption|].
-        repeat match goal with
-               | H1: ?e = Some ?v1, H2: ?e = Some ?v2 |- _ =>
-                 replace v2 with v1 in * by congruence; clear H2
-               end.
-        eauto 10.
-  Qed.
-
-  Lemma exec_to_other_trace s k1 k2 t m l mc post :
-    exec s k1 t m l mc post ->
-    exec s k2 t m l mc (fun k2' t' m' l' mc' =>
-                          exists k'',
-                            k2' = k'' ++ k2 /\
-                              post (k'' ++ k1) t' m' l' mc').
-  Proof.
-    intros H. generalize dependent k2. induction H; intros.
-    - econstructor. exists nil. eauto.
-    - apply expr_to_other_trace in H. destruct H as [k'' [H1 H2] ]. subst.
-      econstructor; intuition eauto.
-    - econstructor; intuition. exists nil. intuition.
-    - apply expr_to_other_trace in H. apply expr_to_other_trace in H0.
-      destruct H as [k''a [H3 H4] ]. subst. destruct H0 as [k''v [H5 H6] ]. subst.
-      econstructor; intuition eauto. eexists (_ :: _ ++ _). simpl.
-      repeat rewrite <- (app_assoc _ _ k2). repeat rewrite <- (app_assoc _ _ k).
-      intuition.
-    - econstructor; intuition. eapply weaken. 1: eapply H1; eauto.
-      simpl. intros. fwd. exists mSmall', mStack'. intuition. eexists (_ ++ _ :: nil).
-      repeat rewrite <- (app_assoc _ _ k2). repeat rewrite <- (app_assoc _ _ k).
-      intuition.
-    - apply expr_to_other_trace in H. fwd. eapply if_true; intuition eauto.
-      eapply weaken. 1: eapply IHexec. simpl. intros. fwd. eexists (_ ++ _ :: _).
-      repeat rewrite <- (app_assoc _ _ k2). repeat rewrite <- (app_assoc _ _ k).
-      intuition.
-    - apply expr_to_other_trace in H. fwd. eapply if_false; intuition.
-      eapply weaken. 1: eapply IHexec. simpl. intros. fwd. eexists (_ ++ _ :: _).
-      repeat rewrite <- (app_assoc _ _ k2). repeat rewrite <- (app_assoc _ _ k).
-      intuition.
-    - econstructor; intuition. fwd. eapply weaken. 1: eapply H1; eauto.
-      simpl. intros. fwd. eexists (_ ++ _).
-      repeat rewrite <- (app_assoc _ _ k2). repeat rewrite <- (app_assoc _ _ k).
-      intuition.
-    - apply expr_to_other_trace in H. fwd. eapply while_false; intuition.
-      eexists (_ :: _). intuition.
-    - apply expr_to_other_trace in H. fwd. eapply while_true; intuition. fwd.
-      eapply weaken. 1: eapply H3; eauto. simpl. intros. fwd. eexists (_ ++ _ ++ _ :: _).
-      repeat rewrite <- (app_assoc _ _ k2). repeat rewrite <- (app_assoc _ _ k).
-      intuition.
-    - apply call_args_to_other_trace in H0.
-      fwd. econstructor; intuition eauto. fwd. apply H3 in H0p2.
-      fwd. exists retvs. intuition. exists l'. intuition. eexists (_ ++ _ :: _).
-      repeat rewrite <- (app_assoc _ _ k2). repeat rewrite <- (app_assoc _ _ k).
-      intuition.
-    - apply call_args_to_other_trace in H0. fwd. econstructor; intuition eauto.
-      apply H2 in H0. fwd. exists l'. intuition. eexists (_ :: _).
-      intuition.
   Qed.
   End WithEnv.
 End exec. Notation exec := exec.exec.
