@@ -1,0 +1,7 @@
+-docroot
+-Q det/bedrock2/src/bedrock2 bedrock2_det.bedrock2
+-Q nondet/bedrock2/src/bedrock2 bedrock2_nondet.bedrock2
+-Q det/deps/coqutil/src/coqutil coqutil
+det
+nondet/bedrock2/src/bedrock2/Semantics.v
+coqutil
