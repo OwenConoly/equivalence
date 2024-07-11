@@ -36,7 +36,7 @@ Lemma app_one_l {A} (a : A) ll : (a :: ll = (cons a nil) ++ ll)%list.
 Proof. reflexivity. Qed.
 
 Require Import Coq.Lists.List.
-Module stuff.
+Module EasyTheorems.
   Context (L B : Type).
   
   Inductive event :=
@@ -54,74 +54,99 @@ Module stuff.
     | branch b => qbranch
     end.
 
+  (*Defn 2.3 of paper*)
+  Definition predicts' (pred : list event -> qevent) (k : list event) :=
+    (forall k1 x k2, k = k1 ++ leak x :: k2 -> pred k1 = qleak x)/\
+      (forall k1 x k2, k = k1 ++ branch x :: k2 -> pred k1 = qbranch) /\
+      pred k = qend.
+
+  (*an equivalent inductive definition*)
   Inductive predicts : (list event -> qevent) -> list event -> Prop :=
   | predicts_nil f : f nil = qend -> predicts f nil
   | predicts_cons f e k : f nil = q e -> predicts (fun k_ => f (e :: k_)) k -> predicts f (e :: k).
-  
+
+  Lemma predicts'_iff_predicts pred k : predicts' pred k <-> predicts pred k.
+  Proof.
+    split.
+    - revert pred.
+      induction k as [|e k']; [|destruct e as [l|b]]; intros pred H; unfold predicts' in H; fwd.
+      + constructor. assumption.
+      + constructor.
+        -- eapply Hp0. trace_alignment.
+        -- eapply IHk'. cbv [predicts']. split; [|split].
+           ++ intros. subst. eapply Hp0. trace_alignment.
+           ++ intros. subst. eapply Hp1. trace_alignment.
+           ++ assumption.
+      + constructor.
+        -- eapply Hp1. trace_alignment.
+        -- eapply IHk'. cbv [predicts']. split; [|split].
+           ++ intros. subst. eapply Hp0. trace_alignment.
+           ++ intros. subst. eapply Hp1. trace_alignment.
+           ++ assumption.
+    - intros H. induction H.
+      + split; [|split].
+        -- intros. destruct k1; simpl in H0; congruence.
+        -- intros. destruct k1; simpl in H0; congruence.
+        -- assumption.
+      + destruct IHpredicts as [H1 [H2 H3]]. split; [|split].
+        -- intros. destruct k1; inversion H4; subst; simpl in *; try congruence.
+           eapply H1. trace_alignment.
+        -- intros. destruct k1; inversion H4; subst; simpl in *; try congruence.
+           eapply H2. trace_alignment.
+        -- assumption.
+  Qed.
+              
   Inductive trace_tree : Type :=
   | tree_leaf
   | tree_leak (l : L) (rest : trace_tree)
   | tree_branch (rest : B -> trace_tree).
 
-  Inductive trace_tree_fragment : Type :=
-  | ftree_leaf
-  | ftree_leak (l : L) (rest : trace_tree_fragment)
-  | ftree_branch (rest : B -> trace_tree_fragment)
-  | ftree_extendable.
-
-  Inductive infinite_trace_tree
-  | itree (f : nat -> trace_tree_fragment) 
-
-  (*probably can do this with coinduction, but i don't want to bother with that now.*)
-  Inductive infinite_trace_tree : Type :=
-  | itree_leaf
-  | itree_leak (l : L) (rest : nat -> option trace_tree)
-      (_ : exists n restval, forall m,
-          (m < n -> rest m = None) /\ (n <= m -> rest m = restval))
-  | itree_branch (rest : B -> nat -> trace_tree)
-      (_ : forall b, exists n 
-
+  (*Defn 2.7 of paper*)
   Inductive path : trace_tree -> list event -> Prop :=
-  | path_nil : path tree_leaf nil
-  | path_leak tree' k l : path tree' k -> path (tree_leak l tree') (leak l :: k)
-  | path_branch tree' k b : path (tree' b) k -> path (tree_branch tree') (branch b :: k).
+  | nil_path : path tree_leaf nil
+  | leak_path x k tree : path tree k -> path (tree_leak x tree) (leak x :: k)
+  | branch_path k f x : path (f x) k -> path (tree_branch f) (branch x :: k).
 
-  Inductive ipath : itrace_tree -> list event -> Prop :=
-  | ipath_nil : path itree_leaf nil
-  | itree_leak
+  Fixpoint predictor_of_trace_tree (tree : trace_tree) : (list event -> qevent) :=
+    fun k =>
+      match tree, k with
+      | tree_leaf, nil => qend
+      | tree_leak l tree', nil => qleak l
+      | tree_branch tree', nil => qbranch
+      | tree_leak l1 tree', leak l2 :: k' => predictor_of_trace_tree tree' k'
+      | tree_branch tree', branch b :: k' => predictor_of_trace_tree (tree' b) k'
+      | _, _ => (*input is garbage, return whatever*) qend
+      end.
 
-  Inductive path : trace_tree -> list event -> Prop :=
-  | path_nil : path tree_leaf nil
-  | path_leak_unit a k : path a k -> path (tree_leak_unit a) (leak_unit :: k)
-  | path_leak_bool a k b : path a k -> path (aleak_bool b a) (leak_bool b :: k)
-  | path_leak_word a k w : path a k -> path (aleak_word w a) (leak_word w :: k)
-  | path_leak_list a k l : path a k -> path (aleak_list l a) (leak_list l :: k)
-  | path_consume_word f k w : path (f w) k -> path (aconsume_word f) (consume_word w :: k).
-
-  Lemma trees_are_itrees (
-  
-  
-  
-  
-  Print trace_tree.
-  
-
-  Search Acc.
-
-  (*Want : for all predictors, there is an abstract trace satisfying*)
-                                   
-
-  (*Fixpoint trace_tree_of_predictor (pred : list event -> qevent) :=
-    match pred nil with
-    | qend => tree_leaf
-    | qleak_unit => aleak_unit (trace_tree_of_predictor (fun k => pred (leak_unit :: k)))
-    | qconsume_word => aconsume_word (fun w => trace_tree_of_predictor (fun k => pred (consume_word w :: k)))
-    | *)
-
-  Inductive qevent :=
-   
-
-
+  (*Theorem 2.10 of paper*)
+  Theorem trace_trees_are_predictors :
+    forall tree, exists pred, forall k,
+      path tree k <-> predicts' pred k.
+  Proof.
+    intros. exists (predictor_of_trace_tree tree). intros. rewrite predicts'_iff_predicts.
+    split; intros H.
+    - induction H.
+      + constructor. reflexivity.
+      + constructor; [reflexivity|]. assumption.
+      + constructor; [reflexivity|]. assumption.
+    - revert k H. induction tree; intros k H'.
+      + simpl in H'. inversion H'; simpl in *; subst.
+        -- constructor.
+        -- destruct e; simpl in H; congruence.
+      + destruct k as [|e k'].
+        { simpl in H'. inversion H'; subst. congruence. }
+        destruct e.
+        -- inversion H'. subst. simpl in H2. inversion H2. subst. constructor.
+           apply IHtree. simpl in H3. apply H3.
+        -- inversion H'. subst. simpl in H2. inversion H2.
+      + destruct k as [|e k'].
+        { simpl in H'. inversion H'; subst. congruence. }
+        destruct e.
+        -- inversion H'. subst. simpl in H3. inversion H3.
+        -- inversion H'. subst. simpl in H3. inversion H3. subst. constructor.
+           apply H. simpl in H4. apply H4.
+  Qed.
+End EasyTheorems.
 
 (* BW is not needed on the rhs, but helps infer width *)
 Definition io_event {width: Z}{BW: Bitwidth width}{word: word.word width}{mem: map.map word byte} : Type :=
