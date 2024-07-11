@@ -199,32 +199,28 @@ Module EasyTheorems.
     FunctionalChoice_on ((list event -> B) * (list event -> qevent)) (list event) ->
     exists trace,
     forall o pred k,
+      predicts pred k ->
       compat o k ->
-      (predicts pred k <-> k = trace (o, pred)).
+      k = trace (o, pred).
   Proof.
-    intros em choice. cbv [FunctionalChoice_on] in choice. specialize (choice (fun o_pred tr => let '(o, pred) := o_pred in forall k, compat o k -> predicts pred k <-> k = tr)).
+    intros em choice. cbv [FunctionalChoice_on] in choice. specialize (choice (fun o_pred tr => let '(o, pred) := o_pred in forall k, predicts pred k -> compat o k -> k = tr)).
     destruct choice as [trace choice].
-    2: { exists trace. intros. specialize (choice (o, pred) k H). apply choice. }
+    2: { exists trace. intros. specialize (choice (o, pred) k H H0). apply choice. }
     intros [o pred]. destruct (em (exists fuel, trace_of_predictor_and_oracle pred o fuel <> None)) as [H | H].
     - destruct H as [fuel H]. exists (match trace_of_predictor_and_oracle pred o fuel with
                                       | Some k => k
                                       | None => nil
                                       end).
       intros. destruct (trace_of_predictor_and_oracle pred o fuel) eqn:E; try congruence.
-      clear H. revert l k pred o H0 E. induction fuel.
+      clear H. revert l k pred o H0 H1 E. induction fuel.
       + intros. simpl in E. congruence.
-      + intros. simpl in E. split.
-        -- intros H. destruct k as [|e k'].
-           ++ inversion H. subst. rewrite H1 in E. inversion E. subst. reflexivity.
-           ++ inversion H. subst. rewrite H4 in E. destruct e; simpl in E.
-              --- destruct (trace_of_predictor_and_oracle _ _ _) eqn:E'; simpl in E; try congruence.
-                  inversion E. subst. f_equal. inversion H0. eapply IHfuel; eassumption.
-              --- destruct (trace_of_predictor_and_oracle _ _ _) eqn:E'; simpl in E; try congruence.
-                  inversion E. subst. inversion H0. subst. f_equal. eapply IHfuel; eassumption.
-        -- intros H. subst. destruct l as [|e k'].
-           ++ constructor. destruct (pred nil); simpl in E.
-              --- 
-           ++ 
+      + intros. simpl in E. destruct k as [|e k'].
+        -- inversion H0. subst. rewrite H in E. inversion E. subst. reflexivity.
+        -- inversion H0. subst. rewrite H4 in E. destruct e; simpl in E.
+           ++ destruct (trace_of_predictor_and_oracle _ _ _) eqn:E'; simpl in E; try congruence.
+              inversion E. subst. f_equal. inversion H1. eapply IHfuel; eassumption.
+           ++ destruct (trace_of_predictor_and_oracle _ _ _) eqn:E'; simpl in E; try congruence.
+              inversion E. subst. inversion H1. subst. f_equal. eapply IHfuel; eassumption.
     - exists nil. intros. exfalso. apply H. clear H. revert o pred H0 H1. induction k as [|e k'].
       + intros. exists (S O). simpl. inversion H0. rewrite H. congruence.
       + intros. destruct e.
@@ -237,18 +233,34 @@ Module EasyTheorems.
            destruct (trace_of_predictor_and_oracle _ _ _); try congruence. simpl. congruence.
   Qed.
 
-  Theorem predictor_to_oracle {T T' : Type} :
+  Theorem predictors_to_oracles {T T' : Type} :
     excluded_middle ->
     FunctionalChoice_on ((list event -> B) * (list event -> qevent)) (list event) ->
     forall pred (g : T -> T'), exists f, forall k t,
-      (forall o, (compat o k -> k = f o (g t))) <->
-        predicts (pred (g t)) k.
+      predicts (pred (g t)) k ->
+      (forall o, (compat o k -> k = f o (g t))).
   Proof.
     intros. specialize predictor_plus_oracle_equals_trace with (1 := H) (2 := H0).
     clear H H0. intros [trace H]. exists (fun o gt => trace (o, pred gt)).
-    intros. split.
-    - intros H'.
-      
+    intros. apply H; assumption.
+  Qed.
+
+  (*Fixpoint predictor_given_trace_of_oracle (trace_of_oracle : (list event -> B) -> list event)
+    (k : list event) : qevent :=
+    match skipn (length k) (trace_of_oracle (oracle_of_trace k)) with
+    | nil =>
+        match (trace_of_oracle ( *)
+
+  Theorem oracles_to_predictors {T T' : Type} :
+    excluded_middle ->
+        FunctionalChoice_on ((list event -> B) * (list event -> qevent)) (list event) ->
+    forall f (g : T -> T'), exists pred, forall k t,
+      (forall o, (compat o k -> k = f o (g t))) ->
+      predicts (pred (g t)) k.
+  Proof.
+    intros em choice. intros.
+    
+    
 End EasyTheorems.
 
 (* BW is not needed on the rhs, but helps infer width *)
