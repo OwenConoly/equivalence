@@ -5,10 +5,10 @@ Require Import coqutil.Datatypes.PrimitivePair coqutil.Datatypes.HList.
 Require Import coqutil.Decidable.
 Require Import coqutil.Tactics.fwd.
 Require Import coqutil.Map.Properties.
-Require Import bedrock2_det.bedrock2.Syntax coqutil.Map.Interface coqutil.Map.OfListWord.
+Require Import bedrock2.Syntax coqutil.Map.Interface coqutil.Map.OfListWord.
 Require Import BinIntDef coqutil.Word.Interface coqutil.Word.Bitwidth.
-Require Import bedrock2_det.bedrock2.MetricLogging.
-Require Export bedrock2_det.bedrock2.Memory.
+Require Import bedrock2.MetricLogging.
+Require Export bedrock2.Memory.
 Require Import Coq.Logic.ClassicalFacts.
 Require Import Coq.Classes.Morphisms.
 
@@ -36,6 +36,93 @@ Lemma app_one_l {A} (a : A) ll : (a :: ll = (cons a nil) ++ ll)%list.
 Proof. reflexivity. Qed.
 
 Require Import Coq.Lists.List.
+Module stuff.
+  Context (L B : Type).
+  
+  Inductive event :=
+  | leak (val : L)
+  | branch (val : B).
+
+  Inductive qevent : Type :=
+  | qleak (val : L)
+  | qbranch
+  | qend.
+
+  Definition q (e : event) : qevent :=
+    match e with
+    | leak l => qleak l
+    | branch b => qbranch
+    end.
+
+  Inductive predicts : (list event -> qevent) -> list event -> Prop :=
+  | predicts_nil f : f nil = qend -> predicts f nil
+  | predicts_cons f e k : f nil = q e -> predicts (fun k_ => f (e :: k_)) k -> predicts f (e :: k).
+  
+  Inductive trace_tree : Type :=
+  | tree_leaf
+  | tree_leak (l : L) (rest : trace_tree)
+  | tree_branch (rest : B -> trace_tree).
+
+  Inductive trace_tree_fragment : Type :=
+  | ftree_leaf
+  | ftree_leak (l : L) (rest : trace_tree_fragment)
+  | ftree_branch (rest : B -> trace_tree_fragment)
+  | ftree_extendable.
+
+  Inductive infinite_trace_tree
+  | itree (f : nat -> trace_tree_fragment) 
+
+  (*probably can do this with coinduction, but i don't want to bother with that now.*)
+  Inductive infinite_trace_tree : Type :=
+  | itree_leaf
+  | itree_leak (l : L) (rest : nat -> option trace_tree)
+      (_ : exists n restval, forall m,
+          (m < n -> rest m = None) /\ (n <= m -> rest m = restval))
+  | itree_branch (rest : B -> nat -> trace_tree)
+      (_ : forall b, exists n 
+
+  Inductive path : trace_tree -> list event -> Prop :=
+  | path_nil : path tree_leaf nil
+  | path_leak tree' k l : path tree' k -> path (tree_leak l tree') (leak l :: k)
+  | path_branch tree' k b : path (tree' b) k -> path (tree_branch tree') (branch b :: k).
+
+  Inductive ipath : itrace_tree -> list event -> Prop :=
+  | ipath_nil : path itree_leaf nil
+  | itree_leak
+
+  Inductive path : trace_tree -> list event -> Prop :=
+  | path_nil : path tree_leaf nil
+  | path_leak_unit a k : path a k -> path (tree_leak_unit a) (leak_unit :: k)
+  | path_leak_bool a k b : path a k -> path (aleak_bool b a) (leak_bool b :: k)
+  | path_leak_word a k w : path a k -> path (aleak_word w a) (leak_word w :: k)
+  | path_leak_list a k l : path a k -> path (aleak_list l a) (leak_list l :: k)
+  | path_consume_word f k w : path (f w) k -> path (aconsume_word f) (consume_word w :: k).
+
+  Lemma trees_are_itrees (
+  
+  
+  
+  
+  Print trace_tree.
+  
+
+  Search Acc.
+
+  (*Want : for all predictors, there is an abstract trace satisfying*)
+                                   
+
+  (*Fixpoint trace_tree_of_predictor (pred : list event -> qevent) :=
+    match pred nil with
+    | qend => tree_leaf
+    | qleak_unit => aleak_unit (trace_tree_of_predictor (fun k => pred (leak_unit :: k)))
+    | qconsume_word => aconsume_word (fun w => trace_tree_of_predictor (fun k => pred (consume_word w :: k)))
+    | *)
+
+  Inductive qevent :=
+   
+
+
+
 (* BW is not needed on the rhs, but helps infer width *)
 Definition io_event {width: Z}{BW: Bitwidth width}{word: word.word width}{mem: map.map word byte} : Type :=
   (mem * String.string * list word) * (mem * list word).
@@ -57,22 +144,6 @@ Inductive event : Type :=
 | leak : forall {A : Type}, A -> event
 | consume : forall {A : Type}, A -> event.*)
 
-Inductive qevent {width: Z}{BW: Bitwidth width}{word: word.word width} : Type :=
-| qleak_unit : qevent
-| qleak_bool : bool -> qevent
-| qleak_word : word -> qevent
-| qleak_list : list word -> qevent
-| qconsume_word : qevent
-| qend : qevent.
-
-Inductive abstract_trace {width: Z}{BW: Bitwidth width}{word: word.word width} : Type :=
-| empty
-| aleak_unit (after : abstract_trace)
-| aleak_bool (b : bool) (after : abstract_trace)
-| aleak_word (w : word) (after : abstract_trace)
-| aleak_list (l : list word) (after : abstract_trace)
-| aconsume_word (after : word -> abstract_trace).
-
 Section WithIOEvent.
   Context {width: Z}{BW: Bitwidth width}{word: word.word width}{mem: map.map word byte}.
 
@@ -88,30 +159,30 @@ Section WithIOEvent.
     | _ => False
     end.
   
-  Inductive predicts : (trace -> event) -> trace -> Prop :=
-  | predicts_cons :
+  Inductive compat : (trace -> event) -> trace -> Prop :=
+  | compat_cons :
     forall f e k,
       (need_to_predict e -> f nil = e) ->
-      predicts (fun k' => f (e :: k')) k ->
-      predicts f (e :: k)
-  | predicts_nil :
+      compat (fun k' => f (e :: k')) k ->
+      compat f (e :: k)
+  | compat_nil :
     forall f,
-      predicts f nil.
+      compat f nil.
   
-  Lemma predicts_ext f k g :
+  Lemma compat_ext f k g :
     (forall k', f k' = g k') ->
-    predicts f k ->
-    predicts g k.
+    compat f k ->
+    compat g k.
   Proof.
     intros H1 H2. revert H1. revert g. induction H2.
     - intros g0 Hfg0. econstructor.
       + rewrite <- Hfg0. apply H.
-      + apply IHpredicts. intros. apply Hfg0.
+      + apply IHcompat. intros. apply Hfg0.
     - intros. constructor.
   Qed.
   
   Lemma predict_cons f k1 k2 e :
-    predicts f (k1 ++ e :: k2) ->
+    compat f (k1 ++ e :: k2) ->
     need_to_predict e ->
     f k1 = e.
   Proof.
@@ -408,6 +479,10 @@ Ltac subst_exprs :=
     | H : evaluate_call_args_log _ _ _ _ _ = Some _ |- _ =>
         apply evaluate_call_args_log_extends_trace in H; destruct H as [? [? ?] ]; subst
     end.
+
+Ltac subst_expr H :=
+  (apply eval_expr_extends_trace in H; destruct H as [? [? ?] ]; subst) ||
+    ( apply evaluate_call_args_log_extends_trace in H; destruct H as [? [? ?] ]; subst).
 
 Require Import Lia.
 
@@ -2293,7 +2368,7 @@ Module exec. Section WithEnv.
   Definition possible_execution_det {pick_sp : PickSp} := possible_execution true.
   Definition satisfies_det {pick_sp : PickSp} := satisfies true.
   Definition possible_execution_nondet {pick_sp : PickSp} := possible_execution false.
-  Definition satisfies_nondet {pick_sp : PickSp} := satisfies false. Check predicts.
+  Definition satisfies_nondet {pick_sp : PickSp} := satisfies false. Check compat.
 
   Ltac destr_sstate st :=
     (*this is not exactly what I want, I want all of them to be named the same way...*)
@@ -2311,10 +2386,10 @@ Module exec. Section WithEnv.
   Proof.
     intros H1 H2. apply H1. clear H1. fwd. exists st'.*)
 
-  Lemma predicts_trivially k :
+  Lemma compat_trivially k :
     (forall x, ~In (consume_word x) k) ->
     forall f,
-      predicts f k.
+      compat f k.
   Proof.
     induction k; constructor.
     - intros Ha. destruct a; destruct Ha. simpl in H. specialize (H r). tauto.
@@ -2328,10 +2403,10 @@ Module exec. Section WithEnv.
                       end) = @List.app event.
   Proof. reflexivity. Qed.
 
-  Lemma predicts_app k1 k2 f :
-    predicts f k1 ->
-    predicts (fun k => f (k1 ++ k)) k2 ->
-    predicts f (k1 ++ k2).
+  Lemma compat_app k1 k2 f :
+    compat f k1 ->
+    compat (fun k => f (k1 ++ k)) k2 ->
+    compat f (k1 ++ k2).
   Proof.
     revert k2. revert f. induction k1.
     - intros. assumption.
@@ -2340,9 +2415,9 @@ Module exec. Section WithEnv.
       + rewrite fold_app. apply IHk1; assumption.
   Qed.
 
-  Lemma predicts_app_inv k1 k2 f :
-    predicts f (k1 ++ k2) ->
-    predicts f k1 /\ predicts (fun k => f (k1 ++ k)) k2.
+  Lemma compat_app_inv k1 k2 f :
+    compat f (k1 ++ k2) ->
+    compat f k1 /\ compat (fun k => f (k1 ++ k)) k2.
   Proof.
     intros H. revert f H. induction k1.
     - intros f H. split; [constructor|assumption].
@@ -2356,14 +2431,14 @@ Module exec. Section WithEnv.
       (state_step false st st' /\
          exists k'',
            get_trace st' = k'' ++ get_trace st /\
-             predicts (fun k_ => consume_word (pick_sp (rev k_ ++ get_trace st))) (List.rev k'')).
+             compat (fun k_ => consume_word (pick_sp (rev k_ ++ get_trace st))) (List.rev k'')).
   Proof.
     destr_sstate st. destr_sstate st'. subst. simpl. split.
     { intros H; induction H; fwd.
       all: try (split; [econstructor; eauto|]).
       all: try (subst_exprs; eexists; split; [solve [trace_alignment]|]).
       all: repeat rewrite app_nil_r; simpl.
-      all: try (apply predicts_trivially; intros;
+      all: try (apply compat_trivially; intros;
                 repeat (rewrite in_app_iff || rewrite <- in_rev || simpl);
                 intuition eauto; congruence).
       - constructor.
@@ -2382,7 +2457,7 @@ Module exec. Section WithEnv.
       (step_ostate false f i /\
          exists k'',
            oget_trace (f (S i)) = k'' ++ oget_trace (f i) /\
-             predicts (fun k_ => consume_word (pick_sp (rev k_ ++ oget_trace (f i)))) (List.rev k'')).
+             compat (fun k_ => consume_word (pick_sp (rev k_ ++ oget_trace (f i)))) (List.rev k'')).
   Proof.
     cbv [step_ostate]. split.
     - intros H.
@@ -2399,7 +2474,7 @@ Module exec. Section WithEnv.
       ((forall i, i < n -> step_ostate false f i) /\
          exists k'',
            oget_trace (f n) = k'' ++ oget_trace (f O) /\
-             predicts (fun k_ => consume_word (pick_sp (rev k_ ++ oget_trace (f O)))) (rev k'')).
+             compat (fun k_ => consume_word (pick_sp (rev k_ ++ oget_trace (f O)))) (rev k'')).
   Proof.
     induction n.
     - split.
@@ -2417,9 +2492,9 @@ Module exec. Section WithEnv.
         -- specialize (H n ltac:(lia)). rewrite step_ostate_equiv in H.
            destruct H as [_ H]. fwd. eexists. split.
            { rewrite Hp0. rewrite IHnp1p0. trace_alignment. }
-           rewrite app_nil_r. rewrite rev_app_distr. apply predicts_app.
+           rewrite app_nil_r. rewrite rev_app_distr. apply compat_app.
            ++ assumption.
-           ++ eapply predicts_ext. 2: eassumption. simpl. intros. f_equal. f_equal.
+           ++ eapply compat_ext. 2: eassumption. simpl. intros. f_equal. f_equal.
               rewrite rev_app_distr. rewrite rev_involutive. repeat rewrite <- app_assoc.
               rewrite IHnp1p0. reflexivity.
       + destruct IHn as [_ IHn]. intros H. fwd.
@@ -2430,7 +2505,7 @@ Module exec. Section WithEnv.
         fwd. rewrite extend in Hp1p0. rewrite H' in Hp1p0. rewrite app_assoc in Hp1p0.
         apply app_inv_tail in Hp1p0. subst.
         rewrite rev_app_distr in Hp1p1.
-        apply predicts_app_inv in Hp1p1. fwd.
+        apply compat_app_inv in Hp1p1. fwd.
         eassert (hyp : _). 2: specialize (IHn hyp); clear hyp.
         { split.
           - intros. apply Hp0. lia.
@@ -2441,7 +2516,7 @@ Module exec. Section WithEnv.
         rewrite step_ostate_equiv. split.
         { apply Hp0. lia. }
         exists k''0. split; [assumption|].
-        eapply predicts_ext. 2: eassumption. simpl. intros. rewrite rev_app_distr.
+        eapply compat_ext. 2: eassumption. simpl. intros. rewrite rev_app_distr.
         rewrite rev_involutive. repeat rewrite <- app_assoc. rewrite H'. reflexivity.
   Qed.
   
@@ -2451,7 +2526,7 @@ Module exec. Section WithEnv.
       (possible_execution_nondet f /\ forall n,
         exists k'',
           get_trace (f (S n)) = k'' ++ get_trace (f O) /\
-            predicts (fun k_ => consume_word (pick_sp (rev k_ ++ get_trace (f O)))) (rev k'')).
+            compat (fun k_ => consume_word (pick_sp (rev k_ ++ get_trace (f O)))) (rev k'')).
   Proof. Abort.*)
   
   Lemma nondet_stuck_det_stuck {pick_sp : PickSp} st :
@@ -2529,7 +2604,7 @@ Module exec. Section WithEnv.
      satisfies_nondet f (fun k' t' m' l' mc' =>
                            exists k'',
                              k' = k'' ++ k /\
-                               (predicts (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
+                               (compat (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
                                 fpost pick_sp k' t' m' l' mc'))) ->
     possible_execution_det f ->
     satisfies_det f (fpost pick_sp).
@@ -2598,7 +2673,7 @@ Module exec. Section WithEnv.
     - auto.
   Qed.
   (*forall i,
-    predicts (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
+    compat (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
     possible_execution_det (pick_sp := pick_sp)*)
   Print state_satisfies.
 
@@ -2652,7 +2727,7 @@ Module exec. Section WithEnv.
     (forall i,
       match f i with
       | Some st => exists k'', get_trace st = k'' ++ k /\
-                                 predicts (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'')
+                                 compat (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'')
       | None => True
       end) ->
     possible_execution_det f.
@@ -2664,8 +2739,8 @@ Module exec. Section WithEnv.
       subst. simpl in H3ip0, H3Sip0. clear H3ip1. induction H2; subst; try solve [econstructor; eauto].
       + econstructor; eauto. intros _.
       replace (consume_word a :: k''0 ++ k) with ((consume_word a :: k''0) ++ k) in H3Sip0 by reflexivity.
-      apply app_inv_tail in H3Sip0. subst. Check predicts_app_inv. simpl in H3Sip1.
-      apply predicts_app_inv in H3Sip1. destruct H3Sip1 as [_ H3Sip1]. inversion H3Sip1. subst.
+      apply app_inv_tail in H3Sip0. subst. Check compat_app_inv. simpl in H3Sip1.
+      apply compat_app_inv in H3Sip1. destruct H3Sip1 as [_ H3Sip1]. inversion H3Sip1. subst.
       specialize (H7 I). inversion H7. subst. rewrite app_nil_r. rewrite rev_involutive. reflexivity.
       + econstructor. eapply IHstep; reflexivity.
     - clear H3. right. left. cbv [stuck_ostate] in *. fwd. intuition. destruct (f i) as [fi|]; [|destruct H2p0].
@@ -2684,7 +2759,7 @@ Module exec. Section WithEnv.
    satisfies_nondet f (fun k' t' m' l' mc' =>
                          exists k'',
                            k' = k'' ++ k /\
-                             (predicts (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
+                             (compat (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
                               fpost pick_sp k' t' m' l' mc')).
   Proof.
     intros. Check det_to_nondet_terminates. specialize det_to_nondet_terminates with (1 := H) (2 := H0).
@@ -2703,7 +2778,7 @@ Module exec. Section WithEnv.
         destruct H'' as [H''|H'']; [rewrite H''; constructor|]. destruct (f j) as [fj|]; [|constructor].
         fwd. eexists. rewrite H in *. simpl in *. split; [eassumption|]. rewrite H'' in H'.
         rewrite app_assoc in H'. apply app_inv_tail in H'. subst. rewrite rev_app_distr in Hpred.
-        apply predicts_app_inv in Hpred. destruct Hpred as [Hpred _]. apply Hpred.
+        apply compat_app_inv in Hpred. destruct Hpred as [Hpred _]. apply Hpred.
       + Search (_ = None). Check stuck_stable. replace (f j) with (@None sstate); [constructor|].
         symmetry. eapply stuck_stable; eauto. rewrite E. simpl. intros [st' H']. destr_sstate st'. subst.
         inversion H'.
@@ -2717,7 +2792,7 @@ Module exec. Section WithEnv.
         satisfies_nondet (pick_sp := pick_sp) f (fun k' t' m' l' mc' =>
                                       exists k'',
                                         k' = k'' ++ k /\
-                                          (predicts (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
+                                          (compat (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
                                            fpost pick_sp k' t' m' l' mc')))
     <->
       (forall pick_sp f,
@@ -2743,7 +2818,7 @@ Module exec. Section WithEnv.
         exec_nondet pick_sp s k t m l mc (fun k' t' m' l' mc' =>
                                     exists k'',
                                       k' = k'' ++ k /\
-                                        (predicts (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
+                                        (compat (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
                                          fpost pick_sp k' t' m' l' mc')))
     <->
       (forall pick_sp,
