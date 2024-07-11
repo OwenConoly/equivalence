@@ -65,6 +65,16 @@ Module EasyTheorems.
   | predicts_nil f : f nil = qend -> predicts f nil
   | predicts_cons f e k : f nil = q e -> predicts (fun k_ => f (e :: k_)) k -> predicts f (e :: k).
 
+  (*Defn 2.4 of paper*)
+  Definition compat' (oracle : list event -> B) (k : list event) :=
+    forall k1 x k2, k = k1 ++ branch x :: k2 -> oracle k1 = x.
+
+  (*an equivalent inductive definition*)
+  Inductive compat : (list event -> B) -> list event -> Prop :=
+  | compat_nil o : compat o nil
+  | compat_cons_branch o k b : o nil = b -> compat (fun k_ => o (branch b :: k_)) k -> compat o (branch b :: k)
+  | compat_cons_leak o k l : compat (fun k_ => o (leak l :: k_)) k -> compat o (leak l :: k).
+  
   Lemma predicts'_iff_predicts pred k : predicts' pred k <-> predicts pred k.
   Proof.
     split.
@@ -94,6 +104,24 @@ Module EasyTheorems.
         -- intros. destruct k1; inversion H4; subst; simpl in *; try congruence.
            eapply H2. trace_alignment.
         -- assumption.
+  Qed.
+
+  Lemma compat'_iff_compat o k : compat' o k <-> compat o k.
+  Proof.
+    split.
+    - intros H. revert o H. induction k; intros o H.
+      + constructor.
+      + destruct a.
+        -- constructor. apply IHk. cbv [compat']. intros. subst. eapply H. trace_alignment.
+        -- constructor.
+           ++ eapply H. trace_alignment.
+           ++ apply IHk. cbv [compat']. intros. subst. eapply H. trace_alignment.
+    - intros H. cbv [compat']. induction H; intros.
+      + destruct k1; simpl in H; congruence.
+      + destruct k1; simpl in H1; try congruence. inversion H1. subst.
+        eapply IHcompat. trace_alignment.
+      + destruct k1; simpl in H0; try congruence. inversion H0. subst.
+        eapply IHcompat. trace_alignment.
   Qed.
               
   Inductive trace_tree : Type :=
@@ -146,6 +174,81 @@ Module EasyTheorems.
         -- inversion H'. subst. simpl in H3. inversion H3. subst. constructor.
            apply H. simpl in H4. apply H4.
   Qed.
+  Print option_map.
+  Fixpoint trace_of_predictor_and_oracle pred o fuel : option (list event) :=
+    match fuel with
+    | O => None
+    | S fuel' =>
+        match pred nil with
+        | qend => Some nil
+        | qleak l => option_map (cons (leak l)) (trace_of_predictor_and_oracle
+                                                   (fun k_ => pred (leak l :: k_))
+                                                   (fun k_ => o (leak l :: k_))
+                                                   fuel')
+                                
+        | qbranch => option_map (cons (branch (o nil))) (trace_of_predictor_and_oracle
+                                                           (fun k_ => pred (branch (o nil) :: k_))
+                                                           (fun k_ => o (branch (o nil) :: k_))
+                                                           fuel')
+                       
+        end
+    end.
+
+  Lemma predictor_plus_oracle_equals_trace :
+    excluded_middle ->
+    FunctionalChoice_on ((list event -> B) * (list event -> qevent)) (list event) ->
+    exists trace,
+    forall o pred k,
+      compat o k ->
+      (predicts pred k <-> k = trace (o, pred)).
+  Proof.
+    intros em choice. cbv [FunctionalChoice_on] in choice. specialize (choice (fun o_pred tr => let '(o, pred) := o_pred in forall k, compat o k -> predicts pred k <-> k = tr)).
+    destruct choice as [trace choice].
+    2: { exists trace. intros. specialize (choice (o, pred) k H). apply choice. }
+    intros [o pred]. destruct (em (exists fuel, trace_of_predictor_and_oracle pred o fuel <> None)) as [H | H].
+    - destruct H as [fuel H]. exists (match trace_of_predictor_and_oracle pred o fuel with
+                                      | Some k => k
+                                      | None => nil
+                                      end).
+      intros. destruct (trace_of_predictor_and_oracle pred o fuel) eqn:E; try congruence.
+      clear H. revert l k pred o H0 E. induction fuel.
+      + intros. simpl in E. congruence.
+      + intros. simpl in E. split.
+        -- intros H. destruct k as [|e k'].
+           ++ inversion H. subst. rewrite H1 in E. inversion E. subst. reflexivity.
+           ++ inversion H. subst. rewrite H4 in E. destruct e; simpl in E.
+              --- destruct (trace_of_predictor_and_oracle _ _ _) eqn:E'; simpl in E; try congruence.
+                  inversion E. subst. f_equal. inversion H0. eapply IHfuel; eassumption.
+              --- destruct (trace_of_predictor_and_oracle _ _ _) eqn:E'; simpl in E; try congruence.
+                  inversion E. subst. inversion H0. subst. f_equal. eapply IHfuel; eassumption.
+        -- intros H. subst. destruct l as [|e k'].
+           ++ constructor. destruct (pred nil); simpl in E.
+              --- 
+           ++ 
+    - exists nil. intros. exfalso. apply H. clear H. revert o pred H0 H1. induction k as [|e k'].
+      + intros. exists (S O). simpl. inversion H0. rewrite H. congruence.
+      + intros. destruct e.
+        -- inversion H0. inversion H1. subst. specialize IHk' with (1 := H5) (2 := H8).
+           destruct IHk' as [fuel IHk']. exists (S fuel). simpl. rewrite H4. simpl.
+           destruct (trace_of_predictor_and_oracle _ _ _); try congruence. simpl.
+           congruence.
+        -- inversion H0. inversion H1. subst. specialize IHk' with (1 := H5) (2 := H10).
+           destruct IHk' as [fuel IHk']. exists (S fuel). simpl. rewrite H4. simpl.
+           destruct (trace_of_predictor_and_oracle _ _ _); try congruence. simpl. congruence.
+  Qed.
+
+  Theorem predictor_to_oracle {T T' : Type} :
+    excluded_middle ->
+    FunctionalChoice_on ((list event -> B) * (list event -> qevent)) (list event) ->
+    forall pred (g : T -> T'), exists f, forall k t,
+      (forall o, (compat o k -> k = f o (g t))) <->
+        predicts (pred (g t)) k.
+  Proof.
+    intros. specialize predictor_plus_oracle_equals_trace with (1 := H) (2 := H0).
+    clear H H0. intros [trace H]. exists (fun o gt => trace (o, pred gt)).
+    intros. split.
+    - intros H'.
+      
 End EasyTheorems.
 
 (* BW is not needed on the rhs, but helps infer width *)
