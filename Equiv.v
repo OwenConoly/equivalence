@@ -38,6 +38,7 @@ Proof. reflexivity. Qed.
 Require Import Coq.Lists.List.
 Module EasyTheorems.
   Context (L B : Type).
+  Context (B_inhabited : B).
   
   Inductive event :=
   | leak (val : L)
@@ -65,7 +66,7 @@ Module EasyTheorems.
   | predicts_nil f : f nil = qend -> predicts f nil
   | predicts_cons f e k : f nil = q e -> predicts (fun k_ => f (e :: k_)) k -> predicts f (e :: k).
 
-  (*Defn 2.4 of paper*)
+  (*Defn 2.5 of paper*)
   Definition compat' (oracle : list event -> B) (k : list event) :=
     forall k1 x k2, k = k1 ++ branch x :: k2 -> oracle k1 = x.
 
@@ -129,7 +130,7 @@ Module EasyTheorems.
   | tree_leak (l : L) (rest : trace_tree)
   | tree_branch (rest : B -> trace_tree).
 
-  (*Defn 2.7 of paper*)
+  (*Defn 2.8 of paper*)
   Inductive path : trace_tree -> list event -> Prop :=
   | nil_path : path tree_leaf nil
   | leak_path x k tree : path tree k -> path (tree_leak x tree) (leak x :: k)
@@ -252,13 +253,24 @@ Module EasyTheorems.
            destruct (trace_of_predictor_and_oracle _ _ _); try congruence. simpl. congruence.
   Qed.
 
+  Fixpoint oracle_of_trace (k k_ : list event) : B :=
+    match k, k_ with
+    | branch b :: k', nil => b
+    | _ :: k', _ :: k_' => oracle_of_trace k' k_'
+    | _, _ => B_inhabited
+    end.
+  
   Lemma compat_exists :
     forall k, exists o, compat o k.
-  Proof. Admitted.
+  Proof.
+    intros k. exists (oracle_of_trace k). induction k.
+    - constructor.
+    - destruct a; constructor; assumption || reflexivity.
+  Qed.
     
-  (*thm 2.10 of paper.  this is not directly the statement of thm 2.10.  rather, we push
-    the oracle into the postcondition, and then show that the one postcondition implies
-    the other.*)
+  (*thm 2.12 of paper.  this is not directly the statement of thm 2.10.  rather, we push
+    the (forall A) into the postcondition, and then show that the postconditions are
+    equivalent.*)
   Theorem predictors_to_oracles {T T' : Type} :
     excluded_middle ->
     FunctionalChoice_on ((list event -> B) * (list event -> qevent)) (option (list event)) ->
@@ -2957,6 +2969,7 @@ Module exec. Section WithEnv.
   Definition exec_det := @exec true.
   Definition exec_nondet := @exec false.
 
+  (*thm 2.13 of the paper*)
   Lemma exec_det_equiv_nondet s k t m l mc fpost :
     excluded_middle ->
     FunctionalChoice_on (option sstate) (option sstate) ->
