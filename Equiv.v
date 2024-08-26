@@ -61,7 +61,6 @@ Module cmd.
   (* { lhs = alloca(nbytes); body; /*allocated memory freed right here*/ } *)
   | seq (s1 s2: cmd)
   | while (test : expr) (body : cmd)
-  | call (binds : list String.string) (function : String.string) (args: list expr)
   | interact (binds : list String.string) (action : String.string) (args: list expr).
 End cmd. Notation cmd := cmd.cmd.
 
@@ -442,9 +441,7 @@ Require Import Lia.
 Module exec. Section WithEnv.
   Context {width: Z} {BW: Bitwidth width} {word: word.word width} {mem: map.map word byte}.
   Context {locals: map.map String.string word}.
-  Context {env: map.map String.string (list String.string * list String.string * cmd)}.
   Context {ext_spec: ExtSpec}.
-  Context (e: env).
   Local Notation metrics := MetricLog.
 
   Implicit Types post : trace -> io_trace -> mem -> locals -> metrics -> Prop. (* COQBUG(unification finds Type instead of Prop and fails to downgrade *)
@@ -529,17 +526,6 @@ Module exec. Section WithEnv.
                                                                            (addMetricLoads 2
                                                                               (addMetricJumps 1 mc''))) post)
     : exec (cmd.while e c) k t m l mc post
-  | call binds fname arges
-      k t m l mc post
-      params rets fbody (_ : map.get e fname = Some (params, rets, fbody))
-      args mc' k' (_ : evaluate_call_args_log l arges mc k = Some (args, mc', k'))
-      lf (_ : map.of_list_zip params args = Some lf)
-      mid (_ : exec fbody (leak_unit :: k') t m lf (addMetricInstructions 100 (addMetricJumps 100 (addMetricLoads 100 (addMetricStores 100 mc')))) mid)
-      (_ : forall k'' t' m' st1 mc'', mid k'' t' m' st1 mc'' ->
-          exists retvs, map.getmany_of_list st1 rets = Some retvs /\
-          exists l', map.putmany_of_list_zip binds retvs l = Some l' /\
-          post k'' t' m' l' (addMetricInstructions 100 (addMetricJumps 100 (addMetricLoads 100 (addMetricStores 100 mc'')))))
-    : exec (cmd.call binds fname arges) k t m l mc post
   | interact binds action arges
       k t m l mc post
       mKeep mGive (_: map.split m mKeep mGive)
@@ -573,9 +559,6 @@ Module exec. Section WithEnv.
   | sseq (s1 s2: scmd)
   | swhile (test : expr) (body : scmd)
   | jump_back
-  | scall (binds : list String.string) (function : String.string) (args: list expr)
-  | start_call (binds : list String.string) (params : list String.string) (rets: list String.string) (fbody: scmd) (args: list expr)
-  | end_call (binds : list String.string) (rets: list String.string) (l : locals)
   | sinteract (binds : list String.string) (action : String.string) (args: list expr)
   | end_interact (binds : list String.string) (action : String.string) (args : list word) (mKeep mGive mReceive : mem) (resvals klist : list word).
   
@@ -587,7 +570,6 @@ Module exec. Section WithEnv.
     | cmd.stackalloc x1 x2 x3 => sstackalloc x1 x2 (inclusion x3)
     | cmd.seq x1 x2 => sseq (inclusion x1) (inclusion x2)
     | cmd.while x1 x2 => swhile x1 (inclusion x2)
-    | cmd.call x1 x2 x3 => scall x1 x2 x3
     | cmd.interact x1 x2 x3 => sinteract x1 x2 x3
     end.
 
@@ -645,24 +627,6 @@ Module exec. Section WithEnv.
       k t m l mc
     : step jump_back k t m l mc
         sskip k t m l (ami 2 (aml 2 (amj 1 mc)))
-  | call_step binds fname arges
-      k t m l mc
-      params rets fbody (_ : map.get e fname = Some (params, rets, fbody))
-    : step (scall binds fname arges) k t m l mc
-        (sseq (start_call binds params rets (inclusion fbody) arges) (end_call binds rets l)) k t m l mc
-  | start_call_step binds params rets sfbody arges
-      k t m l mc
-      args mc' k' (_ : evaluate_call_args_log l arges mc k = Some (args, mc', k'))
-      lf (_ : map.of_list_zip params args = Some lf)
-    : step (start_call binds params rets sfbody arges) k t m l mc
-        sfbody (leak_unit :: k') t m lf (ami 100 (amj 100 (aml 100 (ams 100 mc'))))
-  | end_call_step binds rets (l : locals)
-      k t m (st1 : locals) mc l'
-      (_ : exists retvs,
-          map.getmany_of_list st1 rets = Some retvs /\
-            map.putmany_of_list_zip binds retvs l = Some l')
-    : step (end_call binds rets l) k t m st1 mc
-        sskip k t m l' (ami 100 (amj 100 (aml 100 (ams 100 mc))))
   | interact_step binds action arges
       k t m l mc
       mKeep mGive (_: map.split m mKeep mGive)
@@ -1373,32 +1337,6 @@ Module exec. Section WithEnv.
       + exfalso. destruct HSO as [HSO _]. rewrite HO in HSO. apply HSO.
         eexists (_, _, _, _, _, _). eapply while_true_step; eauto.
       + fwd. congruence.
-    - intros f HO HS. assert (HSO := HS O). destruct HSO as [HSO | [HSO | HSO] ].
-      + cbv [step_ostate state_step] in HSO. rewrite HO in HSO.
-        destruct (f (S O)) as [st'|] eqn:Est'; [|destruct HSO]. destr_sstate st'.
-        inversion HSO. subst. unify_eval_exprs. eapply satisfies_offset.
-        instantiate (1 := 1%nat). eapply build_seq; eauto.
-        2: eapply possible_execution_offset; eauto.
-        intros g HgO HgS. eapply satisfies_weaken.
-        2: { assert (HgSO := HgS O). destruct HgSO as [HgSO | [HgSO | HgSO] ].
-             - cbv [step_ostate state_step] in HgSO. rewrite HgO in HgSO.
-               destruct (g (S O)) as [st'g|] eqn:Est'g; [|destruct HgSO]. destr_sstate st'g.
-               inversion HgSO. subst. unify_eval_exprs. eapply satisfies_offset with (k := 1%nat).
-               eapply IHexec; eauto. apply possible_execution_offset; auto.
-             - exfalso. destruct HgSO as [HgSO _]. rewrite HgO in HgSO. apply HgSO.
-               eexists (_, _, _, _, _, _). econstructor; eauto.
-             - fwd. congruence. }
-        intros * Hmid h HhO HhS. apply H3 in Hmid. fwd.
-        assert (HhSO := HhS O). destruct HhSO as [HhSO | [HhSO | HhSO] ].
-        -- cbv [step_ostate state_step] in HhSO. rewrite HhO in HhSO.
-           destruct (h (S O)) as [st'h|] eqn:Est'h; [|destruct HhSO]. destr_sstate st'h.
-           inversion HhSO. subst. fwd. unify_eval_exprs. exists (S O). rewrite Est'h. left. eauto.
-        -- exfalso. destruct HhSO as [HhSO _]. rewrite HhO in HhSO. apply HhSO.
-           eexists (_, _, _, _, _, _). econstructor; eauto.
-        -- fwd. congruence.
-      + exfalso. destruct HSO as [HSO _]. rewrite HO in HSO. apply HSO.
-        eexists (_, _, _, _, _, _). econstructor; eauto.
-      + fwd. congruence.
     - destruct ext_spec_ok.
       intros f HO HS. assert (HSO := HS O). destruct HSO as [HSO | [HSO | HSO] ].
       + cbv [step_ostate state_step] in HSO. rewrite HO in HSO.
@@ -1683,12 +1621,6 @@ Module exec. Section WithEnv.
       intros.
       eapply H1; eauto.
       intros. fwd. eauto 10.
-    - eapply call.
-      4: eapply IHexec.
-      all: eauto.
-      intros.
-      edestruct H3 as (? & ? & ? & ? & ?); [eassumption|].
-      eauto 10.
     - eapply interact; try eassumption.
       intros.
       edestruct H2 as (? & ? & ?); [eassumption|].
@@ -1865,66 +1797,6 @@ Module exec. Section WithEnv.
           - destruct Hind as [Hind _]. congruence.
           - inversion Hind. subst. inversion H0. }
         cbv [satisfies]. exists n. apply Hind.
-    - assert (HpossO := Hposs O). destruct HpossO as [HpossO|[HpossO|HpossO]].
-      2: { destruct HpossO as [HpossO _]. eapply satisfies_stuck_good in HpossO; try eassumption.
-           rewrite HfO in HpossO. simpl in HpossO. destruct HpossO as [HpossO|HpossO]; [inversion HpossO|congruence]. }
-      2: { fwd. congruence. }
-      cbv [step_ostate state_step] in HpossO. rewrite HfO in HpossO.
-      destruct (f (S O)) as [f1|] eqn:Ef1; [|destruct HpossO]. destr_sstate f1.
-      inversion HpossO. subst. assert (HpossSO := Hposs (S O)).
-      destruct HpossSO as [HpossSO|[HpossSO|HpossSO]].
-      2: { destruct HpossSO as [HpossSO _]. eapply satisfies_stuck_good in HpossSO; try eassumption.
-           rewrite Ef1 in HpossSO. simpl in HpossSO. destruct HpossSO as [HpossSO|HpossSO]; [|congruence]. inversion HpossSO. subst. inversion H0. }
-      2: { fwd. congruence. }
-      cbv [step_ostate state_step] in HpossSO. rewrite Ef1 in HpossSO.
-      destruct (f (S (S O))) as [f2|] eqn:Ef2; [|destruct HpossSO]. destr_sstate f2.
-      inversion HpossSO. subst. inversion H12. subst.
-      specialize (X (fbody, leak_unit :: k', t, m, l, ami 100 (amj 100 (aml 100 (ams 100 mc'))))).
-      eassert (lt : _). 2: specialize (X lt); clear lt.
-      { cbv [lifted_comes_after_or_repeated_prefix lift]. simpl. eapply t_trans.
-        2: { apply t_step. right. eapply t_trans.
-             2: { apply t_step. instantiate (1 := (_, _, _, _, _, _)). simpl. eassumption. }
-             eapply t_step. instantiate (1 := (_, _, _, _, _, _)). simpl. eassumption. }
-        apply t_step. left. apply t_step. constructor. }
-      assert (Hind : forall g, g O = f (S (S O)) -> possible_execution g -> satisfies g post).
-      { intros g HgO Hpossg. specialize (Hsat (fun n => match n with
-                                                        | O => f O
-                                                        | S O => f (S O)
-                                                        | S (S n') => g n'
-                                                        end)).
-        simpl in Hsat. rewrite HfO in Hsat. specialize (Hsat eq_refl).
-        eassert (Hposs' : _). 2: specialize (Hsat Hposs'); clear Hposs'.
-        { intros n. destruct n as [|n].
-          - left. cbv [step_ostate state_step]. rewrite Ef1. simpl. econstructor; eauto.
-          - destruct n as [|n].
-            + left. cbv [step_ostate state_step]. rewrite HgO, Ef1, Ef2. constructor.
-              econstructor; eassumption.
-            + apply Hpossg. }
-        destruct Hsat as [n Hsat]. destruct n as [|n].
-        { cbv [state_satisfies] in Hsat. simpl in Hsat. destruct Hsat as [Hsat|Hsat].
-          - destruct Hsat as [Hsat _]. congruence.
-          - inversion Hsat. }
-        destruct n as [|n].
-        { cbv [state_satisfies] in Hsat. rewrite Ef1 in Hsat. destruct Hsat as [Hsat|Hsat].
-          - destruct Hsat as [Hsat _]. congruence.
-          - inversion Hsat. subst. inversion H0. }
-        exists n. apply Hsat. }
-      rewrite Ef2 in Hind. assert (Hind' := invert_seq). specialize Hind' with (1 := Hind).
-      clear Hind.
-      simpl in X. specialize X with (1 := Hind'). clear Hind'.
-      econstructor; try eassumption. (*X is one assumption*)
-      simpl. intros * [Hlt Hafter].
-      assert (Hposs' := possible_execution_exists (Some (end_call binds rets l0, k'', t', m', st1, mc''))).
-      destruct Hposs' as [g [HgO Hgposs]].
-      assert (Hsatg := Hafter g HgO Hgposs). assert (HgpossO := Hgposs O).
-      destruct HgpossO as [HgpossO|[HgpossO|HgpossO]].
-      2: { destruct HgpossO as [HgpossO _]. eapply satisfies_stuck_good in HgpossO; try eassumption.
-           rewrite HgO in HgpossO. simpl in HgpossO. destruct HgpossO as [HgpossO|HgpossO]; [inversion HgpossO|congruence]. }
-      2: { fwd. congruence. }
-      cbv [step_ostate state_step] in HgpossO. rewrite HgO in HgpossO.
-      destruct (g (S O)) as [g1|] eqn:Eg1; [|destruct HgpossO]. destr_sstate g1.
-      inversion HgpossO. subst. fwd. eexists. intuition eauto. eexists. intuition eauto.
-      eapply satisfies_short; eassumption.
     - destruct ext_spec_ok.
       assert (HpossO := Hposs O).
       assert (stuck_enough: o1 good_stuck (f O) -> exec (cmd.interact binds action args) k t m l mc post).
@@ -1975,8 +1847,6 @@ Module exec. Section WithEnv.
     match s with
     | sseq s1 s2 => S (size s1 + size s2)
     | sskip => O
-    | scall _ _ _ => S (S (S (S (S O))))
-    | start_call _ _ _ _ _ => S (S O)
     | sinteract _ _ _ => S (S O)
     | _ => S O
     end.
