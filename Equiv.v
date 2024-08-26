@@ -61,7 +61,6 @@ Module cmd.
   | store (_ : access_size) (address : expr) (value : expr)
   | stackalloc (lhs : String.string) (nbytes : Z) (body : cmd)
   (* { lhs = alloca(nbytes); body; /*allocated memory freed right here*/ } *)
-  | cond (condition : expr) (nonzero_branch zero_branch : cmd)
   | seq (s1 s2: cmd)
   | while (test : expr) (body : cmd)
   | call (binds : list String.string) (function : String.string) (args: list expr)
@@ -535,17 +534,6 @@ Module exec. Section WithEnv.
               map.split mCombined' mSmall' mStack' /\
               post k' t' mSmall' l' mc'))
     : exec (cmd.stackalloc x n body) k t mSmall l mc post
-  | if_true k t m l mc e c1 c2 post
-    v mc' k' (_ : eval_expr m l e mc k = Some (v, mc', k'))
-    (_ : word.unsigned v <> 0)
-    (_ : exec c1 (leak_bool true :: k') t m l (addMetricInstructions 2 (addMetricLoads 2 (addMetricJumps 1 mc'))) post)
-    : exec (cmd.cond e c1 c2) k t m l mc post
-  | if_false e c1 c2
-    k t m l mc post
-    v mc' k' (_ : eval_expr m l e mc k = Some (v, mc', k'))
-    (_ : word.unsigned v = 0)
-    (_ : exec c2 (leak_bool false :: k') t m l (addMetricInstructions 2 (addMetricLoads 2 (addMetricJumps 1 mc'))) post)
-    : exec (cmd.cond e c1 c2) k t m l mc post
   | seq c1 c2
     k t m l mc post
     mid (_ : exec c1 k t m l mc mid)
@@ -611,7 +599,6 @@ Module exec. Section WithEnv.
   | sstackalloc (lhs : String.string) (nbytes : Z) (body : scmd)
   | end_stackalloc (nbytes : Z) (a : word)
   (* { lhs = alloca(nbytes); body; /*allocated memory freed right here*/ } *)
-  | scond (condition : expr) (nonzero_branch zero_branch : scmd)
   | sseq (s1 s2: scmd)
   | swhile (test : expr) (body : scmd)
   | jump_back
@@ -628,7 +615,6 @@ Module exec. Section WithEnv.
     | cmd.unset x1 => sunset x1
     | cmd.store x1 x2 x3 => sstore x1 x2 x3
     | cmd.stackalloc x1 x2 x3 => sstackalloc x1 x2 (inclusion x3)
-    | cmd.cond x1 x2 x3 => scond x1 (inclusion x2) (inclusion x3)
     | cmd.seq x1 x2 => sseq (inclusion x1) (inclusion x2)
     | cmd.while x1 x2 => swhile x1 (inclusion x2)
     | cmd.call x1 x2 x3 => scall x1 x2 x3
@@ -670,16 +656,6 @@ Module exec. Section WithEnv.
       (_ : map.split mCombined mSmall mStack)
     : step (end_stackalloc n a) k t mCombined l mc
         sskip k t mSmall l mc
-  | if_true_step k t m l mc e c1 c2
-    v mc' k' (_ : eval_expr m l e mc k = Some (v, mc', k'))
-    (_ : word.unsigned v <> 0)
-    : step (scond e c1 c2) k t m l mc
-        c1 (leak_bool true :: k') t m l (ami 2 (aml 2 (amj 1 mc')))
-  | if_false_step k t m l mc e c1 c2
-    v mc' k' (_ : eval_expr m l e mc k = Some (v, mc', k'))
-    (_ : word.unsigned v = 0)
-    : step (scond e c1 c2) k t m l mc
-        c2 (leak_bool false :: k') t m l (ami 2 (aml 2 (amj 1 mc')))
   | seq_step c1 c2
       k t m l mc
       c1' k' t' m' l' mc'
@@ -1405,28 +1381,6 @@ Module exec. Section WithEnv.
       + exists O. rewrite HO. right. econstructor; try eassumption.
         cbv [stuck_ostate] in HSO. rewrite HO in HSO. destruct HSO. assumption.
       + fwd. congruence.
-    - intros f HO HS. assert (HSO := HS O). destruct HSO as [HSO | [HSO | HSO]].
-      + cbv [step_ostate state_step] in HSO. rewrite HO in HSO.
-        destruct (f (S O)) as [st'|] eqn:Est'; [|destruct HSO]. destr_sstate st'.
-        inversion HSO; try congruence. subst. unify_eval_exprs.
-        specialize (IHexec (fun i => f (1 + i))). simpl in IHexec. rewrite Est' in IHexec.
-        specialize (IHexec eq_refl). assert (Hposs := possible_execution_offset _ 1%nat HS).
-        specialize (IHexec Hposs). clear Hposs.
-        apply (satisfies_offset _ 1%nat) in IHexec; eauto.
-      + cbv [stuck_ostate] in HSO. exfalso. destruct HSO as [HSO _]. rewrite HO in HSO.
-        apply HSO. clear HSO. eexists (_, _, _, _, _, _). eapply if_true_step; eauto.
-      + fwd. congruence.
-    - intros f HO HS. assert (HSO := HS O). destruct HSO as [HSO | [HSO | HSO]].
-      + cbv [step_ostate state_step] in HSO. rewrite HO in HSO.
-        destruct (f (S O)) as [st'|] eqn:Est'; [|destruct HSO]. destr_sstate st'.
-        inversion HSO; try congruence. subst. unify_eval_exprs.
-        specialize (IHexec (fun i => f (1 + i))). simpl in IHexec. rewrite Est' in IHexec.
-        specialize (IHexec eq_refl). assert (Hposs := possible_execution_offset _ 1%nat HS).
-        specialize (IHexec Hposs). clear Hposs.
-        apply (satisfies_offset _ 1%nat) in IHexec; eauto.
-      + cbv [stuck_ostate] in HSO. exfalso. destruct HSO as [HSO _]. rewrite HO in HSO.
-        apply HSO. clear HSO. eexists (_, _, _, _, _, _). eapply if_false_step; eauto.
-      + fwd. congruence.
     - eapply build_seq. fold inclusion. intros f H2 H3. eapply satisfies_weaken; eauto.
     - intros f HO HS. assert (HSO := HS O). destruct HSO as [HSO | [HSO | HSO] ].
       + cbv [step_ostate state_step] in HSO. rewrite HO in HSO.
@@ -1882,52 +1836,6 @@ Module exec. Section WithEnv.
       destruct (g (S O)) as [st'|] eqn:Est'; [|destruct Hpossg'O]. destr_sstate st'.
       inversion Hpossg'O. subst. eexists. eexists. intuition eauto.
       eapply satisfies_short; eauto.
-    - assert (HpossO := Hposs O). destruct HpossO as [HpossO|[HpossO|HpossO]].
-      2: { destruct HpossO as [HpossO _]. eapply satisfies_stuck_good in HpossO; try eassumption.
-           rewrite HfO in HpossO. simpl in HpossO. destruct HpossO as [HpossO|HpossO]; [inversion HpossO|congruence]. }
-      2: { fwd. congruence. }
-      cbv [step_ostate state_step] in HpossO. rewrite HfO in HpossO.
-      destruct (f (S O)) as [st'|] eqn:Ef1; [|destruct HpossO]. destr_sstate st'.
-      inversion HpossO; subst.
-      + eassert (Xs1 := X _). eassert (lt : _). 2: specialize (Xs1 lt); clear lt.
-        { cbv [lifted_comes_after_or_repeated_prefix lift].
-          eapply t_step. right. eapply t_step.
-          instantiate (1 := (_, _, _, _, _, _)). econstructor; eassumption. }
-        simpl in Xs1. eapply if_true; try eassumption. eapply Xs1. clear Xs1.
-        intros g HgO Hgposs. specialize (Hsat (fun n => match n with
-                                                        | O => f O
-                                                        | S n' => g n'
-                                                        end)).
-        simpl in Hsat. rewrite HfO in Hsat. specialize (Hsat eq_refl).
-        eassert (Hsathyp : _). 2: specialize (Hsat Hsathyp); clear Hsathyp.
-        { intros n. destruct n as [|n].
-          - left. cbv [step_ostate state_step]. rewrite HgO. assumption.
-          - specialize (Hgposs n). apply Hgposs. }
-        destruct Hsat as [n Hsat]. destruct n as [|n].
-        { destruct Hsat as [Hsat|Hsat].
-          - destruct Hsat as [Hsat _]. simpl in Hsat. discriminate Hsat.
-          - inversion Hsat. }
-        exists n. apply Hsat.
-      (*below, literally only changed if_true to if_false*)
-      + eassert (Xs1 := X _). eassert (lt : _). 2: specialize (Xs1 lt); clear lt.
-        { cbv [lifted_comes_after_or_repeated_prefix lift].
-          eapply t_step. right. eapply t_step.
-          instantiate (1 := (_, _, _, _, _, _)). econstructor; eassumption. }
-        simpl in Xs1. eapply if_false; try eassumption. eapply Xs1. clear Xs1.
-        intros g HgO Hgposs. specialize (Hsat (fun n => match n with
-                                                        | O => f O
-                                                        | S n' => g n'
-                                                        end)).
-        simpl in Hsat. rewrite HfO in Hsat. specialize (Hsat eq_refl).
-        eassert (Hsathyp : _). 2: specialize (Hsat Hsathyp); clear Hsathyp.
-        { intros n. destruct n as [|n].
-          - left. cbv [step_ostate state_step]. rewrite HgO. assumption.
-          - specialize (Hgposs n). apply Hgposs. }
-        destruct Hsat as [n Hsat]. destruct n as [|n].
-        { destruct Hsat as [Hsat|Hsat].
-          - destruct Hsat as [Hsat _]. simpl in Hsat. discriminate Hsat.
-          - inversion Hsat. }
-        exists n. apply Hsat.
     - clear f HfO Hposs Hsatf.
       assert (Xs1 := X (s1, k, t, m, l, mc)). eassert (lt : _). 2: specialize (Xs1 lt); clear lt.
       { apply t_step. (* <- this is magic, and I do not understand it *)
