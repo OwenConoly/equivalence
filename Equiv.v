@@ -18,6 +18,65 @@ Require Import Relation_Definitions.
 Require Import Transitive_Closure.
 Require Import Coq.Logic.ChoiceFacts.
 
+Require Import coqutil.sanity coqutil.Macros.subst coqutil.Macros.unique.
+Require Coq.Strings.String.
+Require Import Coq.Numbers.BinNums.
+
+Module Import bopname.
+  Inductive bopname := add | sub | mul | mulhuu | divu | remu | and | or | xor | sru | slu | srs | lts | ltu | eq.
+End bopname.
+Notation bopname := bopname.bopname.
+
+Module expr.
+  Inductive expr  : Type :=
+  | literal (v: Z)
+  | var (x: String.string)
+  | load (_ : access_size) (addr:expr)
+  | inlinetable (_ : access_size) (table: list Byte.byte) (index: expr)
+  | op (op: bopname) (e1 e2: expr)
+  | ite (c e1 e2: expr). (* if-then-else expression ("ternary if") *)
+
+  Local Notation C0 := (expr.literal Z0).
+  Local Notation C1 := (expr.literal (Zpos xH)).
+
+  (* Definition instead of Notation so that Ltac knows whether we meant "e == 0"
+     and can treat e as an integer, or "! e", can can tread e as a boolean *)
+  Definition not e := expr.op bopname.eq e C0.
+
+  Notation to_bool e := (expr.op bopname.ltu C0 e) (only parsing).
+
+  (* lazy and/or always return 0 or 1 (like in C),
+     even if (some of) their arguments are non-boolean *)
+
+  Notation lazy_and e1 e2 := (ite e1 (to_bool e2) C0).
+  Notation lazy_or e1 e2 := (ite e1 C1 (to_bool e2)).
+
+End expr. Notation expr := expr.expr.
+
+Module cmd.
+  Inductive cmd :=
+  | skip
+  | set (lhs : String.string) (rhs : expr)
+  | unset (lhs : String.string)
+  | store (_ : access_size) (address : expr) (value : expr)
+  | stackalloc (lhs : String.string) (nbytes : Z) (body : cmd)
+  (* { lhs = alloca(nbytes); body; /*allocated memory freed right here*/ } *)
+  | cond (condition : expr) (nonzero_branch zero_branch : cmd)
+  | seq (s1 s2: cmd)
+  | while (test : expr) (body : cmd)
+  | call (binds : list String.string) (function : String.string) (args: list expr)
+  | interact (binds : list String.string) (action : String.string) (args: list expr).
+End cmd. Notation cmd := cmd.cmd.
+
+Definition func : Type := (list String.string * list String.string * cmd).
+
+Module Coercions.
+  Import String.
+  Coercion expr.var : String.string >-> expr.
+  Coercion expr.literal : Z >-> expr.
+End Coercions.
+
+
 (* not sure where to put these lemmas *)
 Lemma align_trace_cons {T} x xs cont t (H : xs = List.app cont t) : @List.cons T x xs = List.app (cons x cont) t.
 Proof. intros. cbn. congruence. Qed.
