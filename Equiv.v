@@ -31,9 +31,7 @@ Module expr.
   Inductive expr  : Type :=
   | literal (v: Z)
   | var (x: String.string)
-  | inlinetable (_ : access_size) (table: list Byte.byte) (index: expr)
-  | op (op: bopname) (e1 e2: expr)
-  | ite (c e1 e2: expr). (* if-then-else expression ("ternary if") *)
+  | op (op: bopname) (e1 e2: expr).
 
   Local Notation C0 := (expr.literal Z0).
   Local Notation C1 := (expr.literal (Zpos xH)).
@@ -43,12 +41,6 @@ Module expr.
   Definition not e := expr.op bopname.eq e C0.
 
   Notation to_bool e := (expr.op bopname.ltu C0 e) (only parsing).
-
-  (* lazy and/or always return 0 or 1 (like in C),
-     even if (some of) their arguments are non-boolean *)
-
-  Notation lazy_and e1 e2 := (ite e1 (to_bool e2) C0).
-  Notation lazy_or e1 e2 := (ite e1 C1 (to_bool e2)).
 
 End expr. Notation expr := expr.expr.
 
@@ -260,13 +252,6 @@ Section semantics.
                                       tr)
                       | None => None
                       end
-      | expr.inlinetable aSize t index =>
-          'Some (index', mc', tr') <- eval_expr index mc tr | None;
-          'Some v <- load aSize (map.of_list_word t) index' | None;
-          Some (
-              v,
-              (addMetricInstructions 3 (addMetricLoads 4 (addMetricJumps 1 mc'))),
-              leak_word index' :: tr')
       | expr.op op e1 e2 =>
           'Some (v1, mc', tr') <- eval_expr e1 mc tr | None;
           'Some (v2, mc'', tr'') <- eval_expr e2 mc' tr' | None;
@@ -274,28 +259,16 @@ Section semantics.
               interp_binop op v1 v2,
               addMetricInstructions 2 (addMetricLoads 2 mc''),
               leak_binop op v1 v2 ++ tr'')
-      | expr.ite c e1 e2 =>
-          'Some (vc, mc', tr') <- eval_expr c mc tr | None;
-          eval_expr
-            (if word.eqb vc (word.of_Z 0) then e2 else e1)
-            (addMetricInstructions 2 (addMetricLoads 2 (addMetricJumps 1 mc')))
-            ((if word.eqb vc (word.of_Z 0) then leak_bool false else leak_bool true) :: tr')
       end.
 
     Fixpoint eval_expr_old (e : expr) : option word :=
       match e with
       | expr.literal v => Some (word.of_Z v)
       | expr.var x => map.get l x
-      | expr.inlinetable aSize t index =>
-          'Some index' <- eval_expr_old index | None;
-          load aSize (map.of_list_word t) index'
       | expr.op op e1 e2 =>
           'Some v1 <- eval_expr_old e1 | None;
           'Some v2 <- eval_expr_old e2 | None;
           Some (interp_binop op v1 v2)
-      | expr.ite c e1 e2 =>
-          'Some vc <- eval_expr_old c | None;
-          eval_expr_old (if word.eqb vc (word.of_Z 0) then e2 else e1)
     end.
 
     Fixpoint evaluate_call_args_log (arges : list expr) (mc : metrics) (tr : trace) :=
@@ -326,9 +299,6 @@ Section semantics.
           end.
       - eexists. split; [trace_alignment|]. auto.
       - eexists. split; [trace_alignment|]. auto.
-      - specialize IHe0 with (1 := Heqo). fwd. eexists. split; [trace_alignment|].
-        simpl. intros x H. destruct H; [congruence|]. rewrite app_nil_r in H.
-        eapply IHe0p1. eassumption.
     - specialize IHe0_1 with (1 := Heqo). specialize IHe0_2 with (1 := Heqo0). fwd.
       eexists. split; [trace_alignment|]. intros x H. rewrite app_nil_r in H.
       assert (In (consume_word x) (k'' ++ k''0)).
@@ -338,15 +308,6 @@ Section semantics.
       + apply in_app_or in H0. destruct H0.
         -- eapply IHe0_2p1. eassumption.
         -- eapply IHe0_1p1. eassumption.
-    - specialize IHe0_1 with (1 := Heqo). destruct (word.eqb _ _).
-      + specialize IHe0_3 with (1 := H). fwd. eexists. split; [trace_alignment|].
-        intros x H'. rewrite app_nil_r in H'. apply in_app_or in H'. destruct H'.
-        -- eapply IHe0_3p1. eassumption.
-        -- destruct H0; [congruence|]. eapply IHe0_1p1. eassumption.
-      + specialize IHe0_2 with (1 := H). fwd. eexists. split; [trace_alignment|].
-        intros x H'. rewrite app_nil_r in H'. apply in_app_or in H'. destruct H'.
-        -- eapply IHe0_2p1. eassumption.
-        -- destruct H0; [congruence|]. eapply IHe0_1p1. eassumption.
   Qed.
 
   Lemma evaluate_call_args_log_extends_trace :
@@ -378,10 +339,6 @@ Section semantics.
       - exists nil. auto.
       - destruct (map.get l x) as [v0|] eqn:E; [|congruence]. inversion H1; subst; clear H1.
         exists nil. simpl. rewrite E. auto.
-      - destruct (eval_expr _ _ _) as [v0|] eqn:E1; [|congruence].
-        destruct v0. destruct p. destruct (load _ _ _) as [v0|] eqn:E2; [|congruence].
-        inversion H1; subst; clear H1. eapply IHe in E1. destruct E1 as [k'' [E1 E3] ]. subst.
-        eexists (_ :: _). intuition. simpl. rewrite E3. rewrite E2. reflexivity.
       - destruct (eval_expr e1 _ _) as [ [ [v0 mc0] p0]|] eqn:E1; [|congruence].
         destruct (eval_expr e2 _ _) as [ [ [v1 mc1] p1]|] eqn:E2; [|congruence].
         inversion H1; subst; clear H1.
@@ -390,17 +347,6 @@ Section semantics.
         eexists (_ ++ _ ++ _). repeat rewrite <- (app_assoc _ _ k1). intuition.
         simpl. rewrite H2. rewrite H4. f_equal. f_equal. repeat rewrite <- (app_assoc _ _ k2).
         reflexivity.
-      - destruct (eval_expr e1 _ _) as [ [ [v0 mc0] p0]|] eqn:E1; [|congruence].
-        eapply IHe1 in E1. destruct E1 as [k''1 [H2 H3] ]. subst. simpl.
-        destruct (word.eqb _ _) eqn:E.
-        + eapply IHe3 in H1. destruct H1 as [k''3 [H1 H2] ]. subst.
-          eexists (_ ++ _ :: _). repeat rewrite <- (app_assoc _ _ k1).
-          intuition. rewrite H3. rewrite E. rewrite H2.
-          repeat rewrite <- (app_assoc _ _ k2). reflexivity.
-        + eapply IHe2 in H1. destruct H1 as [k''2 [H1 H2] ]. subst.
-          eexists (_ ++ _ :: _). repeat rewrite <- (app_assoc _ _ k1).
-          intuition. rewrite H3. rewrite E. rewrite H2.
-          repeat rewrite <- (app_assoc _ _ k2). reflexivity.
     Qed.
 
     Lemma call_args_to_other_trace arges mc k1 vs mc' k1' :
