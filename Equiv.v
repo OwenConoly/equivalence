@@ -5,7 +5,7 @@ Require Import coqutil.Datatypes.PrimitivePair coqutil.Datatypes.HList.
 Require Import coqutil.Decidable.
 Require Import coqutil.Tactics.fwd.
 Require Import coqutil.Map.Properties.
-Require Import bedrock2.Syntax coqutil.Map.Interface coqutil.Map.OfListWord.
+Require Import coqutil.Map.Interface coqutil.Map.OfListWord.
 Require Import BinIntDef coqutil.Word.Interface coqutil.Word.Bitwidth.
 Require Import bedrock2.MetricLogging.
 Require Export bedrock2.Memory.
