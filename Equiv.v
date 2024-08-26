@@ -31,7 +31,6 @@ Module expr.
   Inductive expr  : Type :=
   | literal (v: Z)
   | var (x: String.string)
-  | load (_ : access_size) (addr:expr)
   | inlinetable (_ : access_size) (table: list Byte.byte) (index: expr)
   | op (op: bopname) (e1 e2: expr)
   | ite (c e1 e2: expr). (* if-then-else expression ("ternary if") *)
@@ -58,7 +57,6 @@ Module cmd.
   | skip
   | set (lhs : String.string) (rhs : expr)
   | unset (lhs : String.string)
-  | store (_ : access_size) (address : expr) (value : expr)
   | stackalloc (lhs : String.string) (nbytes : Z) (body : cmd)
   (* { lhs = alloca(nbytes); body; /*allocated memory freed right here*/ } *)
   | seq (s1 s2: cmd)
@@ -246,7 +244,7 @@ Section semantics.
 
   (* this is the expr evaluator that is used to verify execution time, the just-correctness-oriented version is below *)
   Section WithMemAndLocals.
-    Context (m : mem) (l : locals).
+    Context (l : locals).
 
     Local Notation "' x <- a | y ; f" := (match a with x => f | _ => y end)
                                            (right associativity, at level 70, x pattern).
@@ -270,13 +268,6 @@ Section semantics.
               v,
               (addMetricInstructions 3 (addMetricLoads 4 (addMetricJumps 1 mc'))),
               leak_word index' :: tr')
-      | expr.load aSize a =>
-          'Some (a', mc', tr') <- eval_expr a mc tr | None;
-          'Some v <- load aSize m a' | None;
-          Some (
-              v,
-              addMetricInstructions 1 (addMetricLoads 2 mc'),
-              leak_word a' :: tr')
       | expr.op op e1 e2 =>
           'Some (v1, mc', tr') <- eval_expr e1 mc tr | None;
           'Some (v2, mc'', tr'') <- eval_expr e2 mc' tr' | None;
@@ -299,9 +290,6 @@ Section semantics.
       | expr.inlinetable aSize t index =>
           'Some index' <- eval_expr_old index | None;
           load aSize (map.of_list_word t) index'
-      | expr.load aSize a =>
-          'Some a' <- eval_expr_old a | None;
-          load aSize m a'
       | expr.op op e1 e2 =>
           'Some v1 <- eval_expr_old e1 | None;
           'Some v2 <- eval_expr_old e2 | None;
@@ -342,9 +330,6 @@ Section semantics.
       - specialize IHe0 with (1 := Heqo). fwd. eexists. split; [trace_alignment|].
         simpl. intros x H. destruct H; [congruence|]. rewrite app_nil_r in H.
         eapply IHe0p1. eassumption.
-      - specialize IHe0 with (1 := Heqo). fwd. eexists. split; [trace_alignment|].
-      simpl. intros x H. destruct H; [congruence|].  rewrite app_nil_r in H.
-      (*why does eauto not work here:( *) eapply IHe0p1. eassumption.
     - specialize IHe0_1 with (1 := Heqo). specialize IHe0_2 with (1 := Heqo0). fwd.
       eexists. split; [trace_alignment|]. intros x H. rewrite app_nil_r in H.
       assert (In (consume_word x) (k'' ++ k''0)).
@@ -398,10 +383,6 @@ Section semantics.
         destruct v0. destruct p. destruct (load _ _ _) as [v0|] eqn:E2; [|congruence].
         inversion H1; subst; clear H1. eapply IHe in E1. destruct E1 as [k'' [E1 E3] ]. subst.
         eexists (_ :: _). intuition. simpl. rewrite E3. rewrite E2. reflexivity.
-      - destruct (eval_expr _ _ _) as [v0|] eqn:E1; [|congruence].
-        destruct v0. destruct p. destruct (load _ _ _) as [v0|] eqn:E2; [|congruence].
-        inversion H1; subst; clear H1. eapply IHe in E1. destruct E1 as [k'' [E1 E3] ]. subst.
-        eexists (_ :: _). intuition. simpl. rewrite E3. rewrite E2. reflexivity.
       - destruct (eval_expr e1 _ _) as [ [ [v0 mc0] p0]|] eqn:E1; [|congruence].
         destruct (eval_expr e2 _ _) as [ [ [v1 mc1] p1]|] eqn:E2; [|congruence].
         inversion H1; subst; clear H1.
@@ -446,9 +427,9 @@ End semantics.
 
 Ltac subst_exprs :=
   repeat match goal with
-    | H : eval_expr _ _ _ _ _ = Some _ |- _ =>
+    | H : eval_expr _ _ _ _ = Some _ |- _ =>
         apply eval_expr_extends_trace in H; destruct H as [? [? ?] ]; subst
-    | H : evaluate_call_args_log _ _ _ _ _ = Some _ |- _ =>
+    | H : evaluate_call_args_log _ _ _ _ = Some _ |- _ =>
         apply evaluate_call_args_log_extends_trace in H; destruct H as [? [? ?] ]; subst
     end.
 
@@ -503,7 +484,7 @@ Module exec. Section WithEnv.
     : exec cmd.skip k t m l mc post
   | set x e
     m l mc post
-    k t v mc' k' (_ : eval_expr m l e mc k = Some (v, mc', k'))
+    k t v mc' k' (_ : eval_expr l e mc k = Some (v, mc', k'))
     (_ : post k' t m (map.put l x v) (addMetricInstructions 1
                                       (addMetricLoads 1 mc')))
     : exec (cmd.set x e) k t m l mc post
@@ -511,15 +492,6 @@ Module exec. Section WithEnv.
     k t m l mc post
     (_ : post k t m (map.remove l x) mc)
     : exec (cmd.unset x) k t m l mc post
-  | store sz ea ev
-    k t m l mc post
-    a mc' k' (_ : eval_expr m l ea mc k = Some (a, mc', k'))
-    v mc'' k'' (_ : eval_expr m l ev mc' k' = Some (v, mc'', k''))
-    m' (_ : store sz m a v = Some m')
-    (_ : post (leak_word a :: k'') t m' l (addMetricInstructions 1
-                                             (addMetricLoads 1
-                                                (addMetricStores 1 mc''))))
-    : exec (cmd.store sz ea ev) k t m l mc post
   | stackalloc x n body
     k t mSmall l mc post
     (_ : Z.modulo n (bytes_per_word width) = 0)
@@ -541,7 +513,7 @@ Module exec. Section WithEnv.
     : exec (cmd.seq c1 c2) k t m l mc post
   | while_false e c
     k t m l mc post
-    v mc' k' (_ : eval_expr m l e mc k = Some (v, mc', k'))
+    v mc' k' (_ : eval_expr l e mc k = Some (v, mc', k'))
     (_ : word.unsigned v = 0)
     (_ : post (leak_bool false :: k') t m l (addMetricInstructions 1
                                                 (addMetricLoads 1
@@ -549,7 +521,7 @@ Module exec. Section WithEnv.
     : exec (cmd.while e c) k t m l mc post
   | while_true e c
       k t m l mc post
-      v mc' k' (_ : eval_expr m l e mc k = Some (v, mc', k'))
+      v mc' k' (_ : eval_expr l e mc k = Some (v, mc', k'))
       (_ : word.unsigned v <> 0)
       mid (_ : exec c (leak_bool true :: k') t m l mc' mid)
       (_ : forall k'' t' m' l' mc'', mid k'' t' m' l' mc'' ->
@@ -560,7 +532,7 @@ Module exec. Section WithEnv.
   | call binds fname arges
       k t m l mc post
       params rets fbody (_ : map.get e fname = Some (params, rets, fbody))
-      args mc' k' (_ : evaluate_call_args_log m l arges mc k = Some (args, mc', k'))
+      args mc' k' (_ : evaluate_call_args_log l arges mc k = Some (args, mc', k'))
       lf (_ : map.of_list_zip params args = Some lf)
       mid (_ : exec fbody (leak_unit :: k') t m lf (addMetricInstructions 100 (addMetricJumps 100 (addMetricLoads 100 (addMetricStores 100 mc')))) mid)
       (_ : forall k'' t' m' st1 mc'', mid k'' t' m' st1 mc'' ->
@@ -571,7 +543,7 @@ Module exec. Section WithEnv.
   | interact binds action arges
       k t m l mc post
       mKeep mGive (_: map.split m mKeep mGive)
-      args mc' k' (_ :  evaluate_call_args_log m l arges mc k = Some (args, mc', k'))
+      args mc' k' (_ :  evaluate_call_args_log l arges mc k = Some (args, mc', k'))
       mid (_ : ext_spec t mGive action args mid)
       (_ : forall mReceive resvals klist, mid mReceive resvals klist ->
           (*it is a mystery to me why we treat l' and m' differently here.
@@ -595,7 +567,6 @@ Module exec. Section WithEnv.
   | sskip
   | sset (lhs : String.string) (rhs : expr)
   | sunset (lhs : String.string)
-  | sstore (_ : access_size) (address : expr) (value : expr)
   | sstackalloc (lhs : String.string) (nbytes : Z) (body : scmd)
   | end_stackalloc (nbytes : Z) (a : word)
   (* { lhs = alloca(nbytes); body; /*allocated memory freed right here*/ } *)
@@ -613,7 +584,6 @@ Module exec. Section WithEnv.
     | cmd.skip => sskip
     | cmd.set x1 x2 => sset x1 x2
     | cmd.unset x1 => sunset x1
-    | cmd.store x1 x2 x3 => sstore x1 x2 x3
     | cmd.stackalloc x1 x2 x3 => sstackalloc x1 x2 (inclusion x3)
     | cmd.seq x1 x2 => sseq (inclusion x1) (inclusion x2)
     | cmd.while x1 x2 => swhile x1 (inclusion x2)
@@ -626,20 +596,13 @@ Module exec. Section WithEnv.
     scmd -> trace -> io_trace -> mem -> locals -> metrics -> Prop :=
   | set_step x e
       m l mc
-      k t v mc' k' (_ : eval_expr m l e mc k = Some (v, mc', k'))
+      k t v mc' k' (_ : eval_expr l e mc k = Some (v, mc', k'))
     : step (sset x e) k t m l mc
         sskip k' t m (map.put l x v) (ami 1 (aml 1 mc'))
   | unset_step x
     k t m l mc
     : step (sunset x) k t m l mc
         sskip k t m (map.remove l x) mc
-  | store_step sz ea ev
-    k t m l mc
-    a mc' k' (_ : eval_expr m l ea mc k = Some (a, mc', k'))
-    v mc'' k'' (_ : eval_expr m l ev mc' k' = Some (v, mc'', k''))
-    m' (_ : Memory.store sz m a v = Some m')
-    : step (sstore sz ea ev) k t m l mc
-        sskip (leak_word a :: k'') t m' l (ami 1 (aml 1 (ams 1 mc'')))
   | stackalloc_step x n body a
       k t mSmall l mc
       mStack mCombined
@@ -668,13 +631,13 @@ Module exec. Section WithEnv.
         c2 k t m l mc
   | while_false_step e c
       k t m l mc
-      v mc' k' (_ : eval_expr m l e mc k = Some (v, mc', k'))
+      v mc' k' (_ : eval_expr l e mc k = Some (v, mc', k'))
       (_ : word.unsigned v = 0)
     : step (swhile e c) k t m l mc
          sskip (leak_bool false :: k') t m l (ami 1 (aml 1 (amj 1 mc')))
   | while_true_step e c
       k t m l mc post
-      v mc' k' (_ : eval_expr m l e mc k = Some (v, mc', k'))
+      v mc' k' (_ : eval_expr l e mc k = Some (v, mc', k'))
       (_ : word.unsigned v <> 0)
     : step (swhile e c) k t m l mc
         (sseq c (sseq jump_back (swhile e c))) (leak_bool true :: k') t m l mc'
@@ -689,7 +652,7 @@ Module exec. Section WithEnv.
         (sseq (start_call binds params rets (inclusion fbody) arges) (end_call binds rets l)) k t m l mc
   | start_call_step binds params rets sfbody arges
       k t m l mc
-      args mc' k' (_ : evaluate_call_args_log m l arges mc k = Some (args, mc', k'))
+      args mc' k' (_ : evaluate_call_args_log l arges mc k = Some (args, mc', k'))
       lf (_ : map.of_list_zip params args = Some lf)
     : step (start_call binds params rets sfbody arges) k t m l mc
         sfbody (leak_unit :: k') t m lf (ami 100 (amj 100 (aml 100 (ams 100 mc'))))
@@ -703,7 +666,7 @@ Module exec. Section WithEnv.
   | interact_step binds action arges
       k t m l mc
       mKeep mGive (_: map.split m mKeep mGive)
-      args mc' k' (_ : evaluate_call_args_log m l arges mc k = Some (args, mc', k'))
+      args mc' k' (_ : evaluate_call_args_log l arges mc k = Some (args, mc', k'))
       (_ : ext_spec t mGive action args (fun _ _ _ => True))
       mReceive resvals klist
       (_ : forall mid, ext_spec t mGive action args mid -> mid mReceive resvals klist)
@@ -764,7 +727,7 @@ Module exec. Section WithEnv.
       good_stuck (sstackalloc x n body, k, t, m, l, mc)
   | good_stuck_interact : forall k t m l mc binds action arges mKeep mGive args mc' k',
       map.split m mKeep mGive ->
-      evaluate_call_args_log m l arges mc k = Some (args, mc', k') ->
+      evaluate_call_args_log l arges mc k = Some (args, mc', k') ->
       ext_spec t mGive action args (fun _ _ _ => True) ->
       state_stuck (sinteract binds action arges, k, t, m, l, mc) ->
       good_stuck (sinteract binds action arges, k, t, m, l, mc)
@@ -1339,13 +1302,6 @@ Module exec. Section WithEnv.
       + exfalso. cbv [stuck_ostate] in HSO. rewrite HO in HSO. destruct HSO as [HSO _].
         apply HSO. eexists (_, _, _, _, _, _). econstructor; eassumption.
       + fwd. congruence.
-    - intros f HO HS. assert (HSO := HS O). destruct HSO as [HSO | [HSO | HSO] ].
-      + exists (S O). cbv [step_ostate state_step] in HSO. rewrite HO in HSO.
-        destruct (f (S O)) as [st'|]; [|destruct HSO]. destr_sstate st'.
-        simpl in HSO. simpl. inversion HSO. subst. unify_eval_exprs. left. eauto.
-      + exfalso. cbv [stuck_ostate] in HSO. rewrite HO in HSO. destruct HSO as [HSO _].
-        apply HSO. eexists (_, _, _, _, _, _). econstructor; eassumption.
-      + fwd. congruence.
     - intros f HO HS. simpl in HO. clear H0. assert (HSO := HS O).
       destruct HSO as [HSO | [HSO|HSO]].
       + cbv [step_ostate state_step] in HSO. rewrite HO in HSO.
@@ -1758,15 +1714,6 @@ Module exec. Section WithEnv.
     assert (Hsatf := Hsat f HfO Hposs).
     destruct s.
     - econstructor. eapply satisfies_short; eauto.
-    - assert (HpossO := Hposs O). destruct HpossO as [HpossO|[HpossO|HpossO]].
-      + cbv [step_ostate] in HpossO. rewrite HfO in HpossO.
-        destruct (f (S O)) as [st'|] eqn:Est'; [|destruct HpossO]. destr_sstate st'.
-        inversion HpossO. subst. econstructor; try eassumption.
-        eapply satisfies_short; eauto.
-      + enough (sg : o1 good_stuck (f O) \/ option_map get_scmd (f O) = Some sskip).
-        { rewrite HfO in sg. simpl in sg. destruct sg as [sg|sg]; [inversion sg|congruence]. }
-        destruct HpossO. eapply satisfies_stuck_good; eassumption.
-      + fwd. congruence.
     - assert (HpossO := Hposs O). destruct HpossO as [HpossO|[HpossO|HpossO]].
       + cbv [step_ostate] in HpossO. rewrite HfO in HpossO.
         destruct (f (S O)) as [st'|] eqn:Est'; [|destruct HpossO]. destr_sstate st'.
