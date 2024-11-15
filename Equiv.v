@@ -148,7 +148,6 @@ Module ShortTheorems.
       | _, _ => (*input is garbage, return whatever*) qend
       end.
 
-  (*Theorem 2.10 of paper*)
   Theorem trace_trees_are_predictors :
     forall tree, exists pred, forall k,
       path tree k <-> predicts' pred k.
@@ -269,9 +268,6 @@ Module ShortTheorems.
     - destruct a; constructor; assumption || reflexivity.
   Qed.
     
-  (*thm 2.12 of paper.  this is not directly the statement of thm 2.10.  rather, we push
-    the (forall A) into the postcondition, and then show that the postconditions are
-    equivalent.*)
   Theorem predictors_to_oracles {T T' : Type} :
     excluded_middle ->
     FunctionalChoice_on ((list event -> B) * (list event -> qevent)) (option (list event)) ->
@@ -3009,7 +3005,6 @@ Module exec. Section WithEnv.
   Definition exec_det := @exec true.
   Definition exec_nondet := @exec false.
 
-  (*thm 2.13 of the paper*)
   Lemma exec_det_equiv_nondet s k t m l mc fpost :
     excluded_middle ->
     FunctionalChoice_on (option sstate) (option sstate) ->
