@@ -36,7 +36,8 @@ Lemma app_one_l {A} (a : A) ll : (a :: ll = (cons a nil) ++ ll)%list.
 Proof. reflexivity. Qed.
 
 Require Import Coq.Lists.List.
-Module EasyTheorems.
+Module ShortTheorems.
+  Section ShortTheorems.
   Context (L B : Type).
   Context (B_inhabited : B).
   
@@ -282,7 +283,46 @@ Module EasyTheorems.
     intros. split. 1: intros; apply H; assumption. intros.
     specialize (compat_exists k). intros [o Ho]. specialize (H0 o Ho). rewrite H; eassumption.
   Qed.
-End EasyTheorems.
+
+  Fixpoint p' (p1 : list event -> qevent) (p2 : list event -> list event -> qevent) (k : list event) :=
+    match (p1 nil) with
+    | qend => p2 nil k
+    | _ => match k with
+          | nil => (p1 nil)
+          | x :: k' => p' (fun kk => p1 (x :: kk)) (fun kk => p2 (x :: kk)) k'
+          end
+    end.
+
+  Fixpoint p  (p1 : list event -> qevent) (p2 : list event -> list event -> qevent) (k : list event) :=
+    match k with
+    | nil => match (p1 nil) with
+            | qend => p2 nil k
+            | _ => (p1 nil)
+            end
+    | x :: k' => match (p1 nil) with
+               | qend => p2 nil k
+               | _ => p (fun kk => p1 (x :: kk)) (fun kk => p2 (x :: kk)) k'
+               end
+    end.
+  
+  Lemma append_predictors p1 p2 : exists p,
+    forall k1 k2, predicts p1 k1 -> predicts (p2 k1) k2 -> predicts p (k1 ++ k2).
+  Proof.
+    exists (p p1 p2). intros k1. revert p1 p2. induction k1; intros.
+    - simpl. inversion H. subst. destruct k2; simpl.
+      + inversion H0. subst. constructor. simpl. rewrite H1. assumption.
+      + inversion H0. subst. constructor.
+        -- simpl. rewrite H1. assumption.
+        -- simpl. rewrite H1. assumption.
+    - simpl. inversion H. subst. clear H.
+      constructor.
+      -- simpl. rewrite H4. destruct a; reflexivity.
+      -- simpl. rewrite H4. destruct a.
+         ++ simpl. apply IHk1. 1: assumption. assumption.
+         ++ simpl. apply IHk1. 1: assumption. assumption.
+  Qed.
+  End ShortTheorems.
+End ShortTheorems.
 
 (* BW is not needed on the rhs, but helps infer width *)
 Definition io_event {width: Z}{BW: Bitwidth width}{word: word.word width}{mem: map.map word byte} : Type :=
