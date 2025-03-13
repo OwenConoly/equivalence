@@ -1,1 +1,4 @@
 
+[submodule "bedrock2"]
+	path = bedrock2
+	url = https://github.com/OwenConoly/bedrock2
