@@ -1,5 +1,5 @@
 -docroot
--Q det/bedrock2/src/bedrock2 bedrock2
--Q det/deps/coqutil/src/coqutil coqutil
-det
+-Q bedrock2/bedrock2/src/bedrock2 bedrock2
+-Q bedrock2/deps/coqutil/src/coqutil coqutil
+bedrock2
 
