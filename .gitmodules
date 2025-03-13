@@ -1,6 +1,1 @@
-[submodule "det"]
-	path = det
-	url = https://github.com/OwenConoly/bedrock2
-[submodule "nondet"]
-	path = nondet
-	url = https://github.com/OwenConoly/bedrock2
+
