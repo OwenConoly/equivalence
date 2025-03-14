@@ -2,7 +2,7 @@ Require Import Coq.Lists.List.
 Require Import coqutil.Tactics.fwd.
 Require Import Coq.Logic.ClassicalFacts.
 Require Import Coq.Logic.ChoiceFacts.
-Require Import equiv.Proofs. (*just for a tactic or two*)
+Require Import equiv.EquivProof. (*just for a tactic or two*)
 
 Module ShortTheorems.
   Section ShortTheorems.
