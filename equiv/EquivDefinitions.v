@@ -34,9 +34,6 @@ Inductive event {width: Z}{BW: Bitwidth width}{word: word.word width} : Type :=
 Section WithIOEvent.
   Context {width: Z}{BW: Bitwidth width}{word: word.word width}{mem: map.map word byte}.
 
-  (*should I call this leakage_trace, now that it doesn't contain io events?
-    shame to lengthen the name. No, I shouldn't call it a leakage trace, since 
-    it contains the sources of nondeterminism as well as leakage events.*)
   Definition trace : Type := list event.
   Definition io_trace : Type := list io_event.
 
@@ -225,35 +222,14 @@ Section WithEnv.
   Context (e: env).
   Local Notation metrics := MetricLog.
 
-  Implicit Types post : trace -> io_trace -> mem -> locals -> metrics -> Prop. (* COQBUG(unification finds Type instead of Prop and fails to downgrade *)
+  Implicit Types post : trace -> io_trace -> mem -> locals -> metrics -> Prop.
   Implicit Types fpost : PickSp -> trace -> io_trace -> mem -> locals -> metrics -> Prop.
 
   Section WithDet.
     Context (salloc_det : bool).
     Context {pick_sp : PickSp}.
 
-    
-
-  (*I really want to do the semantics like this:
-    cmd -> io_trace -> mem -> locals -> metrics ->
-    (trace -> io_trace -> mem -> locals -> metrics -> Prop) -> Prop.
-    But it would be ugly.  Using app, screwing up simple postconditions
-    (e.g., in seq case) in semantics.
-    
-    So I suppose I'll do 
-    cmd -> trace -> io_trace -> mem -> locals -> metrics ->
-    (trace -> io_trace -> mem -> locals -> metrics -> Prop) -> Prop.
-    
-    Then we can state a lemma, saying that exec c nil t m l mc post -> exec c k t m l mc (fun k' => post (k' ++ k)).
-    Then use that wherever we want, and it's *almost* like leakage trace isn't passed as a parameter to exec.
-    Still ugly though.  But better?  No, not really.  Would be horribly obnoxious to apply that lemma.  Hm.
-
-    I suppose I had better keep the append-style for leakage traces?  :(
-    Is it still worthwhile to split up the io trace and leakage trace then?
-    I think so.
-    It still should be less of a pain to deal with them if they're separated.
-   *)
-  Inductive exec :
+    Inductive exec :
     cmd -> trace -> io_trace -> mem -> locals -> metrics ->
     (trace -> io_trace -> mem -> locals -> metrics -> Prop) -> Prop :=
   | skip
