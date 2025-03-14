@@ -1,3 +1,9 @@
+Definitions and theorems about them are in equiv/Statements.v.
+Proofs are in equiv/Proofs.v.
+bedrock2 is included as a dependency only for some definitions of data structures and memory predicates (and also for definitions of syntax).
+Other than this, the two files equiv/Statements.v and equiv/Proofs.v are self-contained.
+
+
 List of contents:
 
 * Theorem 3.3 of the paper: Lemma titled exec_det_equiv_nondet

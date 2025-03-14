@@ -2,3 +2,10 @@
 Makefile
 CoqMakefile
 *.conf
+*.glob
+*.vo
+*.vok
+*.vos
+*.aux
+*~
+*#
