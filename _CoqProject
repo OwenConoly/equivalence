@@ -2,3 +2,8 @@
 -Q bedrock2/bedrock2/src/bedrock2 bedrock2
 -Q bedrock2/deps/coqutil/src/coqutil coqutil
 -Q equiv equiv
+
+equiv/EquivDefinitions.v
+equiv/EquivProof.v
+equiv/EquivTheorem.v
+equiv/OtherTheorems.v
