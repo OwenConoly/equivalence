@@ -50,6 +50,28 @@ Section semantics.
     Context (m : mem) (l : locals).
     Local Notation eval_expr := (eval_expr m l).
     Local Notation evaluate_call_args_log := (evaluate_call_args_log m l).
+
+     Lemma compat_ext f k g :
+    (forall k', f k' = g k') ->
+    compat f k ->
+    compat g k.
+  Proof.
+    intros H1 H2. revert H1. revert g. induction H2.
+    - intros g0 Hfg0. econstructor.
+      + rewrite <- Hfg0. apply H.
+      + apply IHcompat. intros. apply Hfg0.
+    - intros. constructor.
+  Qed.
+  
+  Lemma predict_cons f k1 k2 e :
+    compat f (k1 ++ e :: k2) ->
+    is_compiler_resolved_nondet e ->
+    f k1 = e.
+  Proof.
+    revert k2. revert e. revert f. induction k1.
+    - intros. inversion H. subst. auto.
+    - intros. inversion H. subst. apply IHk1 with (1 := H5) (2 := H0).
+  Qed.
     
     Lemma eval_expr_extends_trace :
     forall e0 mc k v mc' k',
@@ -2386,31 +2408,11 @@ Section WithEnv.
     - intros. eapply det_to_nondet; eauto.
   Qed.
 
-  Definition exec_det := @exec width BW word mem locals env ext_spec e true.
-  Definition exec_nondet := @exec width BW word mem locals env ext_spec e false.
-
-  Lemma exec_det_equiv_nondet s k t m l mc fpost :
-    excluded_middle ->
-    FunctionalChoice_on (option sstate) (option sstate) ->
-    ext_spec.ok ext_spec ->
-    word.ok word ->
-    map.ok mem ->
-    (forall pick_sp,
-        exec_nondet pick_sp s k t m l mc (fun k' t' m' l' mc' =>
-                                    exists k'',
-                                      k' = k'' ++ k /\
-                                        (compat (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
-                                         fpost pick_sp k' t' m' l' mc')))
-    <->
-      (forall pick_sp,
-          exec_det pick_sp s k t m l mc (fpost pick_sp)).
+  Lemma pick_sp_irrel pick_sp1 pick_sp2 s k t m l mc post :
+    exec e false (pick_sp := pick_sp1) s k t m l mc post ->
+    exec e false (pick_sp := pick_sp2) s k t m l mc post.
   Proof.
-    intros em choice ext_spec_ok word_ok mem_ok. split.
-    - intros H pick_sp. apply step_to_exec; try assumption. revert pick_sp.
-      rewrite <- det_equiv_nondet by assumption. intros pick_sp. apply exec_to_step; try assumption.
-      apply H.
-    - intros H pick_sp. apply step_to_exec; try assumption. revert pick_sp.
-      rewrite det_equiv_nondet by assumption. intros pick_sp. apply exec_to_step; try assumption.
-      apply H.
+    intros H. induction H; try solve [econstructor; eauto].
+    econstructor; eauto. intros. eapply H1; eauto. intros. congruence.
   Qed.
 End WithEnv.

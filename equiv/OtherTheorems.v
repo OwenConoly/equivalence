@@ -4,11 +4,11 @@ Require Import Coq.Logic.ClassicalFacts.
 Require Import Coq.Logic.ChoiceFacts.
 Require Import equiv.EquivProof. (*just for a tactic or two*)
 
-Module ShortTheorems.
-  Section ShortTheorems.
+Section ShortTheorems.
   Context (L B : Type).
   Context (B_inhabited : B).
-  
+
+  (*note that (list event) is the sort of leakage trace discussed in the paper.*)
   Inductive event :=
   | leak (val : L)
   | branch (val : B).
@@ -24,7 +24,7 @@ Module ShortTheorems.
     | branch b => qbranch
     end.
 
-  (*Defn 2.3 of paper*)
+  (*Defn 4.1 of paper*)
   Definition predicts' (pred : list event -> qevent) (k : list event) :=
     (forall k1 x k2, k = k1 ++ leak x :: k2 -> pred k1 = qleak x)/\
       (forall k1 x k2, k = k1 ++ branch x :: k2 -> pred k1 = qbranch) /\
@@ -35,7 +35,7 @@ Module ShortTheorems.
   | predicts_nil f : f nil = qend -> predicts f nil
   | predicts_cons f e k : f nil = q e -> predicts (fun k_ => f (e :: k_)) k -> predicts f (e :: k).
 
-  (*Defn 2.5 of paper*)
+  (*Definition 2.3 of the paper*)
   Definition compat' (oracle : list event -> B) (k : list event) :=
     forall k1 x k2, k = k1 ++ branch x :: k2 -> oracle k1 = x.
 
@@ -93,13 +93,14 @@ Module ShortTheorems.
       + destruct k1; simpl in H0; try congruence. inversion H0. subst.
         eapply IHcompat. trace_alignment.
   Qed.
-              
+
+  (*as in section C.1 of the paper*)
   Inductive trace_tree : Type :=
   | tree_leaf
   | tree_leak (l : L) (rest : trace_tree)
   | tree_branch (rest : B -> trace_tree).
 
-  (*Defn 2.8 of paper*)
+  (*Definition C.1 of the paper*)
   Inductive path : trace_tree -> list event -> Prop :=
   | nil_path : path tree_leaf nil
   | leak_path x k tree : path tree k -> path (tree_leak x tree) (leak x :: k)
@@ -116,6 +117,7 @@ Module ShortTheorems.
       | _, _ => (*input is garbage, return whatever*) qend
       end.
 
+  (*Theorem C.3 of the paper*)
   Theorem trace_trees_are_predictors :
     forall tree, exists pred, forall k,
       path tree k <-> predicts' pred k.
@@ -143,7 +145,7 @@ Module ShortTheorems.
         -- inversion H'. subst. simpl in H3. inversion H3. subst. constructor.
            apply H. simpl in H4. apply H4.
   Qed.
-  Print option_map.
+
   Fixpoint trace_of_predictor_and_oracle pred o fuel : option (list event) :=
     match fuel with
     | O => None
@@ -151,18 +153,19 @@ Module ShortTheorems.
         match pred nil with
         | qend => Some nil
         | qleak l => option_map (cons (leak l)) (trace_of_predictor_and_oracle
-                                                   (fun k_ => pred (leak l :: k_))
-                                                   (fun k_ => o (leak l :: k_))
-                                                   fuel')
-                                
+                                                  (fun k_ => pred (leak l :: k_))
+                                                  (fun k_ => o (leak l :: k_))
+                                                  fuel')
+                               
         | qbranch => option_map (cons (branch (o nil))) (trace_of_predictor_and_oracle
-                                                           (fun k_ => pred (branch (o nil) :: k_))
-                                                           (fun k_ => o (branch (o nil) :: k_))
-                                                           fuel')
-                       
+                                                          (fun k_ => pred (branch (o nil) :: k_))
+                                                          (fun k_ => o (branch (o nil) :: k_))
+                                                          fuel')
+                               
         end
     end.
 
+  (*Theorem 4.3 of the paper*)
   Lemma predictor_plus_oracle_equals_trace :
     excluded_middle ->
     FunctionalChoice_on ((list event -> B) * (list event -> qevent)) (option (list event)) ->
@@ -177,9 +180,9 @@ Module ShortTheorems.
     2: { exists trace. intros. specialize (choice (o, pred) k H). apply choice. }
     intros [o pred]. destruct (em (exists fuel, trace_of_predictor_and_oracle pred o fuel <> None)) as [H | H].
     - destruct H as [fuel H]. exists (match trace_of_predictor_and_oracle pred o fuel with
-                                      | Some k => Some k
-                                      | None => Some nil
-                                      end).
+                                 | Some k => Some k
+                                 | None => Some nil
+                                 end).
       intros. destruct (trace_of_predictor_and_oracle pred o fuel) eqn:E; try congruence.
       clear H. revert l k pred o H0 E. induction fuel.
       + intros. simpl in E. congruence.
@@ -235,7 +238,8 @@ Module ShortTheorems.
     - constructor.
     - destruct a; constructor; assumption || reflexivity.
   Qed.
-    
+
+  (*Corollary 4.4 of the paper*)
   Theorem predictors_to_oracles {T T' : Type} :
     excluded_middle ->
     FunctionalChoice_on ((list event -> B) * (list event -> qevent)) (option (list event)) ->
@@ -268,7 +272,8 @@ Module ShortTheorems.
                | _ => p (fun kk => p1 (x :: kk)) (fun kk => p2 (x :: kk)) k'
                end
     end.
-  
+
+  (*Lemma D.1 of the paper*)
   Lemma append_predictors p1 p2 : exists p,
     forall k1 k2, predicts p1 k1 -> predicts (p2 k1) k2 -> predicts p (k1 ++ k2).
   Proof.
@@ -285,5 +290,4 @@ Module ShortTheorems.
          ++ simpl. apply IHk1. 1: assumption. assumption.
          ++ simpl. apply IHk1. 1: assumption. assumption.
   Qed.
-  End ShortTheorems.
 End ShortTheorems.

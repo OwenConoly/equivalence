@@ -30,6 +30,7 @@ Section WithEnv.
   Context {ext_spec: ExtSpec}.
   Context (e: env).
 
+  (*Theorem 3.3 of the paper*)
   Lemma exec_det_equiv_nondet s k t m l mc fpost :
     excluded_middle ->
     FunctionalChoice_on (option sstate) (option sstate) ->
@@ -37,13 +38,25 @@ Section WithEnv.
     word.ok word ->
     map.ok mem ->
     (forall pick_sp,
-        exec_nondet e pick_sp s k t m l mc (fun k' t' m' l' mc' =>
-                                              exists k'',
-                                                k' = k'' ++ k /\
-                                                  (compat (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
-                                                   fpost pick_sp k' t' m' l' mc')))
+        exec_nondet e s k t m l mc (fun k' t' m' l' mc' =>
+                                      exists k'',
+                                        k' = k'' ++ k /\
+                                          (compat (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
+                                           fpost pick_sp k' t' m' l' mc')))
     <->
       (forall pick_sp,
           exec_det e pick_sp s k t m l mc (fpost pick_sp)).
-  Proof. apply EquivProof.exec_det_equiv_nondet. Qed.
+  Proof.
+    intros em choice ext_spec_ok word_ok mem_ok. split.
+    - intros H pick_sp. apply step_to_exec; try assumption. revert pick_sp.
+      pose proof det_equiv_nondet as P. cbv [possible_execution_det satisfies_det] in P.
+      rewrite <- P by assumption. clear P. intros pick_sp. apply exec_to_step; try assumption.
+      cbv [exec_nondet] in H. eapply pick_sp_irrel with (pick_sp1 := _). eapply H.
+    - intros H pick_sp. eapply pick_sp_irrel with (pick_sp1 := _).
+      apply step_to_exec; try assumption. revert pick_sp.
+      pose proof det_equiv_nondet as P. cbv [possible_execution_nondet satisfies_nondet] in P.
+    
+      rewrite P by assumption. intros pick_sp. apply exec_to_step; try assumption.
+      apply H.
+  Qed.
 End WithEnv.
