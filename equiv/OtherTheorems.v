@@ -312,8 +312,26 @@ Section ShortTheorems.
     | _ :: part', _ :: whole' => get_next part' whole'
     | _ :: _, nil => qend (*garbage*)
     end.
+
+  Fixpoint predictor_of_fun (f : (list event -> B) -> list event) (k : list event) : qevent :=
+    match k with
+    | nil => match f (fun _ => B_inhabited) with
+            | branch _ :: _ => qbranch
+            | leak x :: _ => qleak x
+            | nil => qend
+            end
+    | e :: k' =>
+        predictor_of_fun (fun o(*assumes no e*) => match f (fun k_(*assumes e*) => o (match k_ with
+                                                   | _ :: k_' => k_'
+                                                   | _ => nil
+                                                   end)) with
+                                | _ :: k'_ => k'_
+                                | _ => nil (*garbage*)
+                                end)
+                         k'
+    end.
   
-  Definition predictor_of_fun (f : (list event -> B) -> list event) (k : list event) : qevent :=
+  Definition predictor_of_fun_alt (f : (list event -> B) -> list event) (k : list event) : qevent :=
     let full_trace := f (oracle_of_trace k) in
     get_next k full_trace.
 
@@ -350,25 +368,48 @@ Section ShortTheorems.
       whether to take a branch.*)
   Abort.
 
+  Import List.ListNotations.
+
   Lemma predictor_from_nowhere f :
-    (forall A k, prefix k (f A) -> forall B, compat B k -> prefix k (f B)) ->
-    (forall A B, compat B (f A) -> f B = f A) ->
     (forall A, compat A (f A)) ->
+    (forall A B k,
+        (exists b1, prefix (k ++ [branch b1]) (f A)) ->
+        prefix k (f B) ->
+        (exists b2, prefix (k ++ [branch b2]) (f B))) ->
+    (forall A B k x,
+        prefix (k ++ [leak x]) (f A) ->
+        prefix k (f B) ->
+        prefix (k ++ [leak x]) (f B)) ->
+    (forall A B k,
+        k = f A ->
+        prefix k (f B) ->
+        k = f B) ->
     exists pred,
     forall k,
       predicts pred k <-> (forall A, (compat A k -> k = f A)).
   Proof.
-    intros f_step f_end f_compat.
+    intros f_compat f_branch f_leak f_end.
     exists (predictor_of_fun f). intros. split.
-    - intros Hpred A Hcompat. revert f f_step f_end f_compat Hpred.
-      induction Hcompat; intros f f_step f_end f_compat Hpred.
+    - intros Hpred A Hcompat. revert f f_compat f_branch f_leak f_end Hpred.
+      induction Hcompat; intros f f_compat f_branch f_leak f_end Hpred.
       + inversion Hpred. clear Hpred. subst. cbv [predictor_of_fun] in H. simpl in H.
         destruct (f _) eqn:E; cycle 1. { destruct e; discriminate H. }
-        epose proof (f_end _ o ltac:(rewrite E; econstructor)) as H'.
-        rewrite H', E. reflexivity.
+        eapply f_end. 1: symmetry; eassumption. eexists. reflexivity.
       + inversion Hpred. subst. clear Hpred. cbv [predictor_of_fun] in H3.
         simpl in H3. destruct (f (fun _ => B_inhabited)) eqn:E; try discriminate H3.
         destruct e; try discriminate H3. clear H3.
+        epose proof (f_branch (fun _ => B_inhabited) o nil _) as H.
+        Unshelve. all: cycle 1.
+        { eexists. simpl. rewrite E. eexists. reflexivity. }
+        specialize (H ltac:(eexists; reflexivity)).
+        destruct H as [b2 H]. simpl in H. destruct H as [k_ H].
+        epose proof (f_compat o) as heads_eq. rewrite H in heads_eq. simpl in heads_eq.
+        inversion heads_eq. subst. rewrite H. simpl. f_equal.
+        simpl in H4. specialize IHHcompat with (5 := H4).
+        epose proof (IHHcompat _ _ _ _) as IHHcompat. simpl in IHHcompat.
+        rewrite IHHcompat. simpl.
+        simpl in IHHcompat. cbv [predictor_of_fun] in H4. simpl in H4.
+        specialize (IHHcompat (fun k' => predictor_of_fun f (branch (o []) :: k'))).
         epose proof (f_step o (branch (o nil) :: nil) _) as H.
         Unshelve. all: cycle 1.
         { rewrite E. exists l. reflexivity. }
