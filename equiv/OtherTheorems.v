@@ -290,4 +290,35 @@ Section ShortTheorems.
          ++ simpl. apply IHk1. 1: assumption. assumption.
          ++ simpl. apply IHk1. 1: assumption. assumption.
   Qed.
+  (*forall A k, prefix k f(A) -> forall B, compat B k -> prefix k f(B)*)
+
+  Definition prefix {A: Type} (k1 k : list A) :=
+    exists k2, k = k1 ++ k2.
+
+  Print predicts.
+  Fixpoint get_next (part whole : list event) : qevent :=
+    match part, whole with
+    | nil, leak x :: _ => qleak x
+    | nil, branch _ :: _ => qbranch
+    | nil, nil => qend
+    | _ :: part', _ :: whole' => get_next part' whole'
+    | _ :: _, nil => qend (*garbage*)
+    end.
+  
+  Definition predictor_of_fun (f : (list event -> B) -> list event) (k : list event) : qevent :=
+    let full_trace := f (oracle_of_trace k) in
+    get_next k full_trace.
+
+  Lemma predictor_from_nowhere f :
+    (forall A k, prefix k (f A) -> forall B, compat B k -> prefix k (f B)) ->
+    exists pred,
+    forall k,
+      predicts pred k <-> (forall A, (compat A k -> k = f A)).
+  Proof.
+    intros f_reasonable. exists (predictor_of_fun f). intros. split.
+    - intros Hpred A Hcompat. induction Hcompat.
+      + inversion Hpred. subst. cbv [predictor_of_fun] in H. simpl in H.
+        destruct (f _) eqn:E; cycle 1. { destruct e; discriminate H. }
+        
+    
 End ShortTheorems.
