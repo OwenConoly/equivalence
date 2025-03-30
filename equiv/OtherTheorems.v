@@ -230,6 +230,14 @@ Section ShortTheorems.
     | _ :: k', _ :: k_' => oracle_of_trace k' k_'
     | _, _ => B_inhabited
     end.
+
+  Lemma oracle_of_trace_works k :
+    compat (oracle_of_trace k) k.
+  Proof.
+   induction k.
+    - constructor.
+    - destruct a; constructor; assumption || reflexivity.
+  Qed.
   
   Lemma compat_exists :
     forall k, exists o, compat o k.
@@ -309,16 +317,95 @@ Section ShortTheorems.
     let full_trace := f (oracle_of_trace k) in
     get_next k full_trace.
 
+  Lemma both_prefixes {A : Type} (l1 l2 : list A) :
+    prefix l1 l2 ->
+    prefix l2 l1 ->
+    l1 = l2.
+  Proof.
+    intros [l2' H1] [l1' H2].
+    replace l1 with (l1 ++ nil) in H2 by apply app_nil_r.
+    rewrite H1 in H2. rewrite <- app_assoc in H2.
+    apply app_inv_head in H2. destruct l2'; inversion H2.
+    rewrite H1. rewrite app_nil_r. reflexivity.
+  Qed.
+
+  Lemma prefix_refl {A : Type} (l : list A) :
+    prefix l l.
+  Proof. exists nil. symmetry. apply app_nil_r. Qed.
+  
+  Lemma full_thing_special_case f :
+    (forall A k, prefix k (f A) -> forall B, compat B k -> prefix k (f B)) ->
+    forall A B, compat B (f A) -> f B = f A.
+  Proof.
+    intros f_reasonable. intros o1 o2 Hcompat.
+    epose proof (f_reasonable o1 (f o1) _ o2 _) as left.
+    Unshelve. all: cycle 1.
+    { apply prefix_refl. }
+    { assumption. }
+    destruct left as [nill left]. destruct nill.
+    { rewrite app_nil_r in left. assumption. }
+    epose proof (f_reasonable o2 (f o1 ++ e :: nil) _) as H'. Unshelve. all: cycle 1.
+    { exists nill. rewrite <- app_assoc. simpl. assumption. }
+    (*this is not true; suppose the program could 'look ahead' into the future to decide
+      whether to take a branch.*)
+  Abort.
+
   Lemma predictor_from_nowhere f :
     (forall A k, prefix k (f A) -> forall B, compat B k -> prefix k (f B)) ->
+    (forall A B, compat B (f A) -> f B = f A) ->
+    (forall A, compat A (f A)) ->
     exists pred,
     forall k,
       predicts pred k <-> (forall A, (compat A k -> k = f A)).
   Proof.
-    intros f_reasonable. exists (predictor_of_fun f). intros. split.
-    - intros Hpred A Hcompat. induction Hcompat.
-      + inversion Hpred. subst. cbv [predictor_of_fun] in H. simpl in H.
+    intros f_step f_end f_compat.
+    exists (predictor_of_fun f). intros. split.
+    - intros Hpred A Hcompat. revert f f_step f_end f_compat Hpred.
+      induction Hcompat; intros f f_step f_end f_compat Hpred.
+      + inversion Hpred. clear Hpred. subst. cbv [predictor_of_fun] in H. simpl in H.
         destruct (f _) eqn:E; cycle 1. { destruct e; discriminate H. }
+        epose proof (f_end _ o ltac:(rewrite E; econstructor)) as H'.
+        rewrite H', E. reflexivity.
+      + inversion Hpred. subst. clear Hpred. cbv [predictor_of_fun] in H3.
+        simpl in H3. destruct (f (fun _ => B_inhabited)) eqn:E; try discriminate H3.
+        destruct e; try discriminate H3. clear H3.
+        epose proof (f_step o (branch (o nil) :: nil) _) as H.
+        Unshelve. all: cycle 1.
+        { rewrite E. exists l. reflexivity. }
+        specialize (H o).
+        
+        destruct (f o) eqn:E'; [reflexivity|].
+        epose proof (f_reasonable o (e :: nil) _) as H'.
+        Unshelve. all: cycle 1.
+        { rewrite E'. exists l. reflexivity. }           
+        destruct e; exfalso.
+        -- epose proof (H' (fun _ => B_inhabited) _) as H'.
+           Unshelve. all: cycle 1.
+           { constructor. constructor. }
+           rewrite E in H'. destruct H' as [l' H']. simpl in H'. discriminate H'.
+        -- epose proof (H' (fun _ => val) _) as H'.
+           Unshelve. all: cycle 1.
+           { constructor; [reflexivity|]. constructor. }
+           epose proof (f_reasonable (fun _ => B_inhabited) nil _ (fun _ => val) _).
+           Unshelve. all: cycle 1.
+           { eexists. reflexivity. }
+           { constructor. }
+           
+           
+           { eexists. reflexivity. }
+        eassert _ as blah. 2: specialize (f_reasoe  blah); clear blah.
+        { eexists. reflexivity. }
+        specialize (f_reasonable 
+        eassert _ as blah. 2: specialize (f_reasonable o (e :: nil) blah); clear blah.
+        { rewrite E'. exists l. reflexivity. }
+        destruct e; exfalso.
+        -- specialize (f_reasonable _ (oracle_of_trace_works _)).
+        2: {
+        -- 
+        specialize (f_reasonable (fun _ => B_inhabited) nil).
+        eassert _ as blah. 2: specialize (f_reasonable blah); clear blah.
+        { eexists. simpl. eassumption. }
+        specialize (f_reasonable o).
         
     
 End ShortTheorems.
