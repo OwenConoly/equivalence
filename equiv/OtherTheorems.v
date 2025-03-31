@@ -524,37 +524,38 @@ Section ShortTheorems.
     fun_reasonable f ->
     (forall k b1, prefix (k ++ [branch b1]) (f g1) -> g2 k = g1 k) ->
     f g1 = f g2.
-  Proof. Admitted.
-  (*   intros f_reasonable. intros Hsame. apply lists_eq_iff. *)
-    
+  Proof. 
+    intros f_reasonable. intros Hsame. apply lists_eq_iff.
+    split; [|split].
+    - intros H. destruct f_reasonable as (_&_&f_end).
+      eapply f_end; [reflexivity|assumption].
+    - intros H. destruct f_reasonable as (_&_&f_end).
+      eapply f_end; [reflexivity|assumption].
+    - intros. destruct x1.
+      + destruct f_reasonable as (_&f_leak&_). specialize f_leak with (1 := H).
+        destruct H0 as (?&H0). rewrite <- app_assoc in H0. specialize (f_leak g2).
+        epose proof (f_leak _) as f_leak. Unshelve. all: cycle 1.
+        { eexists. eassumption. }
+        destruct H as (?&H). destruct f_leak as (?&f_leak). rewrite f_leak in H0.
+        rewrite <- app_assoc in H0. apply app_inv_head in H0. inversion H0. clear H0.
+        subst. reflexivity.
+      + pose proof f_reasonable as (f_branch&_&_). specialize f_branch with (1 := H).
+        destruct H as (?&H). rewrite <- app_assoc in H. specialize (f_branch g2).
+        destruct H0 as (?&H0). rewrite <- app_assoc in H0.
+        epose proof (f_branch _) as f_branch. Unshelve. all: cycle 1.
+        { eexists. eassumption. }
+        destruct f_branch as (?&f_branch). rewrite f_branch in H0.
+        rewrite <- app_assoc in H0. apply app_inv_head in H0. inversion H0. subst. clear H0.
+        erewrite Hsame. all: cycle 1.
+        { eexists. rewrite <- app_assoc. eassumption. }
+        destruct f_reasonable as (f_branch'&_&_). specialize (f_branch' g1 g1 l val).
+        epose proof (f_branch' _ _) as f_branch'. Unshelve. all: cycle 1.
+        { eexists. rewrite <- app_assoc. eassumption. }
+        { eexists. eassumption. }
+        destruct f_branch' as (?&f_branch'). rewrite f_branch' in H. rewrite <- app_assoc in H.
+        apply app_inv_head in H. inversion H. subst. reflexivity.
+  Qed.
 
-  (*   Search nth. assert (forall k,  *)
-  (*   remember (f g1) as l eqn:E1. revert f f_reasonable E1. *)
-  (*   induction l; intros f f_reasonable E1. *)
-  (*   - destruct f_reasonable as (_&_&f_end). eapply f_end. 2: eexists; reflexivity. eassumption. *)
-  (*   - specialize (IHl (fun o => match f o with *)
-  (*                            | _ :: l => l *)
-  (*                            | nil => nil *)
-  (*                            end) (reasonableness_preserved _ ltac:(eassumption))). *)
-  (*     simpl in IHl. rewrite <- E1 in IHl. specialize (IHl eq_refl). destruct a. *)
-  (*     + destruct f_reasonable as (_&f_leak&_). *)
-  (*       epose proof (f_leak g1 g2 nil val _ _) as H. Unshelve. all: cycle 1. *)
-  (*       { eexists. simpl. rewrite <- E1. reflexivity. } *)
-  (*       { eexists. reflexivity. } *)
-  (*       simpl in H. destruct H as (l0&H). *)
-  (*       rewrite H. simpl. f_equal. rewrite IHl. rewrite H. reflexivity. *)
-  (*     + destruct f_reasonable as (f_branch&_&_). *)
-  (*       epose proof (f_branch g1 g2 nil val _ _) as H2. Unshelve. all: cycle 1. *)
-  (*       { eexists. rewrite <- E1. simpl. reflexivity. } *)
-  (*       { eexists. reflexivity. } *)
-  (*       simpl in H2. destruct H2 as (l2&H2). rewrite H2. *)
-  (*       epose proof (f_branch g1 g1 nil val _ _) as H1. Unshelve. all: cycle 1. *)
-  (*       { eexists. rewrite <- E1. reflexivity. } *)
-  (*       { eexists. reflexivity. } *)
-  (*       simpl in H1. destruct H1 as (l1&H1). rewrite H1 in E1. inversion E1. subst. *)
-  (*       clear E1. rewrite H2. simpl. rewrite Hsame. reflexivity. *)
-  (* Qed. *)
-  
   Lemma predictor_from_nowhere f :
     fun_reasonable f ->
     exists pred,
