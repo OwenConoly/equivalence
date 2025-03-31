@@ -375,13 +375,7 @@ Section ShortTheorems.
 
   Import List.ListNotations.
 
-  Lemma predicts_ext f g k :
-    predicts f k ->
-    (forall k', f k' = g k') ->
-    predicts g k.
-  Proof. Admitted.
-
-  Definition fun_reasonable (f : (list event -> B) -> list event)  :=
+  Definition fun_reasonable (f : (list event -> B) -> list event) :=
     (forall A B k b1,
         prefix (k ++ [branch b1]) (f A) ->
         prefix k (f B) ->
@@ -528,7 +522,7 @@ Section ShortTheorems.
      
   Lemma reasonable_ext f g1 g2 :
     fun_reasonable f ->
-    (forall k, prefix k (f g1) -> g1 k = g2 k) ->
+    (forall k b1, prefix (k ++ [branch b1]) (f g1) -> g2 k = g1 k) ->
     f g1 = f g2.
   Proof. Admitted.
   (*   intros f_reasonable. intros Hsame. apply lists_eq_iff. *)
@@ -567,19 +561,19 @@ Section ShortTheorems.
     forall k,
       predicts pred k <-> (forall A, (compat A k -> k = f A)).
   Proof.
-    intros fun_reasonable. exists (predictor_of_fun f). intros. split.
+    intros f_reasonable. exists (predictor_of_fun f). intros. split.
     - intros Hpred A Hcompat.
-      revert f fun_reasonable Hpred.
-      induction Hcompat; intros f fun_reasonable Hpred.
+      revert f f_reasonable Hpred.
+      induction Hcompat; intros f f_reasonable Hpred.
       + inversion Hpred. clear Hpred. subst. cbv [predictor_of_fun] in H. simpl in H.
         destruct (f _) eqn:E; cycle 1. { destruct e; discriminate H. }
-        destruct fun_reasonable as (_&_&f_end).
+        destruct f_reasonable as (_&_&f_end).
         eapply f_end. 1: symmetry; eassumption. eexists. reflexivity.
-      + inversion Hpred. subst. clear Hpred. cbv [predictor_of_fun] in H3.
+      + inversion Hpred. subst. clear Hpred. 
         simpl in H3. destruct (f (fun _ => B_inhabited)) eqn:E; try discriminate H3.
         destruct e; try discriminate H3. clear H3.
-        pose proof fun_reasonable as fun_reasonable'.
-        destruct fun_reasonable' as (f_branch&_&_).
+        pose proof f_reasonable as f_reasonable'.
+        destruct f_reasonable' as (f_branch&_&_).
         epose proof (f_branch (fun _ => B_inhabited) o nil val _ _) as H.
         Unshelve. all: cycle 1.
         { eexists. simpl. rewrite E. reflexivity. }
@@ -587,7 +581,7 @@ Section ShortTheorems.
         destruct H as [l' H]. simpl in H. rewrite H. f_equal.
         simpl in H4. specialize IHHcompat with (2 := H4).
         Check reasonableness_preserved'.
-        epose proof (IHHcompat (reasonableness_preserved' _ _ _ fun_reasonable _)) as IHHcompat.
+        epose proof (IHHcompat (reasonableness_preserved' _ _ _ f_reasonable _)) as IHHcompat.
         Unshelve. all: cycle 2.
         { intros. instantiate (1 := fun x => branch x). simpl.
           specialize (f_branch o A nil (o []) ltac:(exists l'; rewrite H; reflexivity)).
@@ -596,6 +590,77 @@ Section ShortTheorems.
         subst. erewrite <- reasonable_ext. 1: rewrite H; reflexivity.
         1: assumption. intros. destruct k; [reflexivity|]. destruct H0 as (?&H0).
         rewrite H0 in H. inversion H. subst. reflexivity.
-      + 
-    
+      + inversion Hpred. subst. clear Hpred. simpl in H3. 
+        pose proof f_reasonable as f_reasonable'.
+        destruct f_reasonable' as (_&f_leak&_).
+        simpl in H2. destruct (f _) eqn:E; try discriminate H2.
+        destruct e; inversion H2; subst; clear H2.
+        epose proof (f_leak (fun _ => B_inhabited) o nil l _ _) as H.
+        Unshelve. all: cycle 1.
+        { eexists. simpl. rewrite E. reflexivity. }
+        { eexists. reflexivity. }
+        destruct H as [l' H]. simpl in H. rewrite H. f_equal.
+        specialize IHHcompat with (2 := H3).
+        Check reasonableness_preserved'.
+        epose proof (IHHcompat (reasonableness_preserved' _ _ _ f_reasonable _)) as IHHcompat.
+        Unshelve. all: cycle 2.
+        { intros. instantiate (1 := fun x => leak l). simpl.
+          specialize (f_leak o A nil l ltac:(exists l'; rewrite H; reflexivity)).
+          specialize (f_leak ltac:(eexists; reflexivity)).
+          simpl in f_leak. apply f_leak. }
+        subst. erewrite <- reasonable_ext. 1: rewrite H; reflexivity.
+        1: assumption. intros. destruct k.
+        -- destruct H0 as (?&H0). rewrite H0 in H. simpl in H. inversion H.
+        -- destruct H0 as (?&H0). rewrite H0 in H. simpl in H. inversion H. reflexivity.
+    - intros. revert f f_reasonable H. induction k; intros f f_reasonable H.
+      + constructor. simpl. specialize (H (fun _ => B_inhabited)).
+        specialize (H ltac:(constructor)). rewrite <- H. reflexivity.
+      + constructor.
+        -- simpl. specialize (H _ (oracle_of_trace_works _)). destruct a.
+           ++ destruct f_reasonable as (_&f_leak&_).
+              epose proof (f_leak (oracle_of_trace (leak val :: k)) (fun _ => B_inhabited) nil val _ _) as f_leak.
+              Unshelve. all: cycle 1.
+              { eexists.  rewrite <- H. reflexivity. }
+              { eexists. reflexivity. }
+              destruct f_leak as (?&f_leak). simpl in f_leak. rewrite f_leak. reflexivity.
+           ++ destruct f_reasonable as (f_branch&_&_).
+              epose proof (f_branch (oracle_of_trace (branch val :: k)) (fun _ => B_inhabited) nil val _ _) as f_leak.
+              Unshelve. all: cycle 1.
+              { eexists.  rewrite <- H. reflexivity. }
+              { eexists. reflexivity. }
+              destruct f_leak as (?&f_leak). simpl in f_leak. rewrite f_leak. reflexivity.
+        -- simpl. apply IHk.
+           ++ eapply reasonableness_preserved'. 1: assumption. clear IHk.
+              specialize (H _ (oracle_of_trace_works _)).
+              destruct a.
+              --- destruct f_reasonable as (_&f_leak&_). intros A.
+                  specialize (f_leak (oracle_of_trace (leak val :: k)) A nil val).
+                  epose proof (f_leak _ _) as f_leak.
+                  Unshelve. all: cycle 2.
+                  { rewrite <- H. exists k. reflexivity. }
+                  { eexists. reflexivity. }
+                  1: {  instantiate (1 := match a with
+                                      | leak val => fun _ => leak val
+                                      | _ => _
+                                          end). simpl.  simpl in f_leak. apply f_leak. }
+              --- simpl. destruct f_reasonable as (f_branch&_&_). intros A.
+                  specialize (f_branch (oracle_of_trace (branch val :: k)) A nil val).
+                  epose proof (f_branch _ _) as f_branch.
+                  Unshelve. all: cycle 2.
+                  { rewrite <- H. eexists. reflexivity. }
+                  { eexists. reflexivity. }
+                  { instantiate (1 := fun x => branch x). simpl. apply f_branch. }
+           ++ intros. specialize (H (fun k' => match k' with
+                                            | nil => (match a with
+                                                     | branch x => x
+                                                     | leak _ => B_inhabited
+                                                     end)
+                                            | _ :: k' => A k'
+                                            end)).
+              epose proof (H _) as H. Unshelve. all: cycle 1.
+              { destruct a.
+                - constructor. assumption.
+                - constructor; [reflexivity|assumption]. }
+              rewrite <- H. reflexivity.
+  Qed.
 End ShortTheorems.
