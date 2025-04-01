@@ -665,3 +665,117 @@ Section ShortTheorems.
               rewrite <- H. reflexivity.
   Qed.
 End ShortTheorems.
+
+Require Import Coq.Relations.Relation_Operators.
+Require Import Coq.Wellfounded.Transitive_Closure.
+Require Import coqutil.sanity coqutil.Macros.subst coqutil.Macros.unique coqutil.Byte.
+Require Import coqutil.Datatypes.PrimitivePair coqutil.Datatypes.HList.
+Require Import coqutil.Decidable.
+Require Import coqutil.Tactics.fwd.
+Require Import coqutil.Map.Properties.
+Require Import bedrock2.Syntax coqutil.Map.Interface coqutil.Map.OfListWord.
+Require Import BinIntDef coqutil.Word.Interface coqutil.Word.Bitwidth.
+Require Import bedrock2.MetricLogging.
+Require Export bedrock2.Memory.
+Require Import Coq.Logic.ClassicalFacts.
+Require Import Coq.Classes.Morphisms.
+
+Require Import Coq.Wellfounded.Union.
+Require Import Relation_Operators.
+Require Import Relation_Definitions.
+Require Import Transitive_Closure.
+Require Import Coq.Logic.ChoiceFacts.
+
+Require Import Coq.Lists.List.
+Require Import equiv.EquivDefinitions.
+
+Check exec_nondet.
+
+Module UseExec.
+  Section UseExec.
+    Context {width: Z} {BW: Bitwidth width} {word: word.word width} {mem: map.map word byte}.
+    Context {locals: map.map String.string word}.
+    Context {env: map.map String.string (list String.string * list String.string * cmd)}.
+    Context {ext_spec: ExtSpec}.
+
+    Print event.
+    Inductive trace_tree :=
+    | tree_leaf
+    | tree_leak_unit (rest : trace_tree)
+    | tree_leak_bool (b : bool) (rest : trace_tree)
+    | tree_leak_word (w : word) (rest : trace_tree)
+    | tree_leak_list (l : list word) (rest : trace_tree)
+    | tree_branch_word (rest : word -> trace_tree).
+
+    Inductive path : trace -> trace_tree -> Prop :=
+    | path_leaf : path nil tree_leaf
+    | path_leak_unit k t : path k t -> path (leak_unit :: k) (tree_leak_unit t)
+    | path_leak_bool k t b : path k t -> path (leak_bool b :: k) (tree_leak_bool b t)
+    | path_leak_word k t w : path k t -> path (leak_word w :: k) (tree_leak_word w t)
+    | path_leak_list k t l : path k t -> path (leak_list l :: k) (tree_leak_list l t)
+    | path_branch_word k t w : path k (t w) -> path (consume_word w :: k) (tree_branch_word t).
+
+    Print event.
+    Inductive qevent :=
+    | qleak_unit
+    | qleak_bool (b : bool)
+    | qleak_word (w : word)
+    | qleak_list (l : list word)
+    | qconsume_word
+    | qend.
+
+    Definition q (e : event) : qevent :=
+      match e with
+      | leak_unit => qleak_unit
+      | leak_bool b => qleak_bool b
+      | leak_word w => qleak_word w
+      | leak_list l => qleak_list l
+      | consume_word _ => qconsume_word
+      end.
+
+    Print predicts.
+    Inductive predicts : (trace -> qevent) -> trace -> Prop :=
+    | predicts_nil f : f nil = qend ->
+                       predicts f nil
+    | predicts_cons f e k : f nil = q e ->
+                            predicts (fun k_ => f (e :: k_)) k ->
+                            predicts f (e :: k).
+
+    Check exec_nondet.
+
+    Fixpoint tree_of_trace (k : trace) : trace_tree. Admitted.
+
+    Lemma tree_of_trace_works k : path k (tree_of_trace k). Admitted.
+
+    Import List.ListNotations.
+
+    Definition id (X: Type) := X.
+    Opaque id.
+    Definition id' {X : Type} (x: X) : id X := x.
+    
+    Ltac subst_exprs :=
+  repeat match goal with
+    | H : eval_expr _ _ _ _ _ = Some _ |- _ =>
+        pose proof (id' H); apply eval_expr_extends_trace in H; destruct H as [? [? ?] ]; subst
+    | H : evaluate_call_args_log _ _ _ _ _ = Some _ |- _ =>
+        pose proof (id' H); apply evaluate_call_args_log_extends_trace in H; destruct H as [? [? ?] ]; subst
+    end; cbv [id] in *.
+    
+    Lemma pred_ct_impl_tree_ct e s k t m l mc (pred : trace -> qevent) P :
+      exec_nondet e s k t m l mc (fun k' _ _ _ _ => P k' -> exists k'', k' = k'' ++ k /\ predicts pred (rev k'')) ->
+      exists tree,
+        exec_nondet e s k t m l mc (fun k' _ _ _ _ => P k' -> exists k'', k' = k'' ++ k /\ path k'' tree).
+    Proof.
+      remember (fun k _ _ _ _ => _) as post.
+      eassert (Hpost : forall k t m l mc, post k t m l mc -> _).
+      { intros * H. subst. exact H. }
+      clear Heqpost.
+      intros H. revert pred P Hpost. induction H; intros pred P Hpost; repeat match goal with
+                                                                     | H: _ |- _ => pose proof (Hpost _ _ _ _ _ H); clear H end; try clear Hpost post; fwd; subst_exprs; try
+      (eexists (tree_of_trace _); econstructor; eauto; eexists; split; trace_alignment;
+       try rewrite app_nil_r; apply tree_of_trace_works).
+      4: {
+        Check intersect.
+      - eexists 
+        { Search eval_expr.
+        try rewrite app_nil_r. apply tree_of_trace_works.
