@@ -41,6 +41,11 @@ Module Leakage.
       | branch b => qbranch
       end.
 
+    Inductive trace_tree :=
+    | tree_leaf
+    | tree_leak (l : L) (rest : trace_tree)
+    | tree_branch (rest : B -> trace_tree).
+
     (*Defn 4.1 of paper*)
     Definition predicts' (pred : list event -> qevent) (k : list event) :=
       (forall k1 x k2, k = k1 ++ leak x :: k2 -> pred k1 = qleak x)/\
@@ -51,6 +56,11 @@ Module Leakage.
     Inductive predicts : (list event -> qevent) -> list event -> Prop :=
     | predicts_nil f : f nil = qend -> predicts f nil
     | predicts_cons f e k : f nil = q e -> predicts (fun k_ => f (e :: k_)) k -> predicts f (e :: k).
+
+    Inductive path : list event -> trace_tree -> Prop :=
+    | path_leaf : path nil tree_leaf
+    | path_leak k t l : path k t -> path (leak l :: k) (tree_leak l t)
+    | path_branch k t b : path k (t b) -> path (branch b :: k) (tree_branch t).
 
     (*Definition 2.3 of the paper*)
     Definition compat' (oracle : list event -> B) (k : list event) :=

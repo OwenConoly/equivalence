@@ -3,8 +3,15 @@ Require Import coqutil.Tactics.fwd.
 Require Import Coq.Logic.ClassicalFacts.
 Require Import Coq.Logic.ChoiceFacts.
 Require Import equiv.EquivProof. (*just for a tactic or two*)
+Require Import equiv.EquivDefinitions.
 
 Section ShortTheorems.
+  Import Leakage.
+  Context {L B : Type} (B_inhabited : B).
+  Notation predicts := (@predicts L B).
+  Notation compat := (@compat L B).
+  Notation event := (@event L B).
+  Notation qevent := (@qevent L).
   
   Lemma predicts'_iff_predicts pred k : predicts' pred k <-> predicts pred k.
   Proof.
@@ -336,19 +343,21 @@ Section ShortTheorems.
 
   Import List.ListNotations.
 
-  Definition fun_reasonable (f : (list event -> B) -> list event) :=
-    (forall A B k b1,
+  Context (possible : (list event -> B) -> Prop).
+
+  Definition fun_reasonable' (f : (list event -> B) -> list event) A B :=
+    (forall k b1,
         prefix (k ++ [branch b1]) (f A) ->
         prefix k (f B) ->
         prefix (k ++ [branch (B k)]) (f B)) /\
-      (forall A B k x,
+      (forall k x,
           prefix (k ++ [leak x]) (f A) ->
           prefix k (f B) ->
           prefix (k ++ [leak x]) (f B)) /\
-      (forall A B k,
-          k = f A ->
-          prefix k (f B) ->
-          k = f B).
+      (prefix (f A) (f B) ->
+       f A = f B).
+
+  Definition fun_reasonable f := forall A B, possible A -> possible B -> fun_reasonable' f A B.
 
   Lemma reasonableness_preserved f :
     fun_reasonable f ->
@@ -356,19 +365,21 @@ Section ShortTheorems.
                           | _ :: l => l
                           | nil => nil
                           end).
-  Proof.
-    intros (f_branch&f_leak&f_end). split; [|split].
-    - clear f_leak f_end. intros A1 A2 k b1. specialize (f_branch A1 A2).
-      destruct (f A1).
-      + intros. destruct H. Search (nil = _ ++ _). rewrite <- app_assoc in H.
-        apply app_cons_not_nil in H. destruct H.
-      + specialize (f_branch (e :: k) b1). intros H1 H2.
-  Abort. (*simply not true*)
+  Proof. Abort. (*just not true*)
 
-  Lemma reasonableness_preserved' f g b :
-    fun_reasonable f ->
-    (forall A, prefix ([g (A [])])(*first elt should only depend on A []*) (f A)) ->
-    fun_reasonable (fun o0 : list event -> B =>
+  Lemma reasonableness_preserved' f g b o1 o2 :
+    let o1' := (fun k_ => match k_ with
+                                                           | nil => b
+                                                           | _ :: k_' => o1 k_'
+                       end) in
+    let o2' := (fun k_ => match k_ with
+                            | nil => b
+                            | _ :: k_' => o2 k_'
+                            end) in
+    fun_reasonable' f  o1' o2' ->
+    (prefix ([g (o1' [])])(*first elt should only depend on A []*) (f o1')) ->
+    (prefix ([g (o2' [])])(*first elt should only depend on A []*) (f o2')) ->
+    fun_reasonable' (fun o0 : list event -> B =>
        match
          f (fun k_ : list event => match k_ with
                                    | [] => b
@@ -377,81 +388,46 @@ Section ShortTheorems.
        with
        | [] => []
        | _ :: k'_ => k'_
-       end).
+       end)
+      o1 o2.
   Proof.
-    intros H. split; [|split].
-    - intros. destruct H as (H&_&_). specialize (H (fun k_ => match k_ with
-                                                           | nil => b
-                                                           | _ :: k_' => A k_'
-                                                           end)).
-      specialize (H (fun k_ => match k_ with
-                            | nil => b
-                            | _ :: k_' => B0 k_'
-                            end)).
+    intros o1' o2' H. split; [|split].
+    - intros. destruct H as (H&_&_).
       specialize (H (g b :: k) b1).
       destruct H1 as (l1&H1). destruct H2 as (l2&H2).
-      pose proof (H0 (fun k_ => match k_ with
-                            | nil => b
-                            | _ :: k_' => A k_'
-                             end)).
       destruct (f _).
-      { destruct H3. inversion H3. }
-      destruct H3. inversion H3. subst. clear H3.
-      pose proof (H0 (fun k_ => match k_ with
-                            | nil => b
-                            | _ :: k_' => B0 k_'
-                             end)).
+      { destruct H0. inversion H0. }
+      destruct H0. inversion H0. subst. clear H0.
       destruct (f _).
-      { destruct H1. discriminate H1. }
-      destruct H1. inversion H1. subst. clear H1.
+      { discriminate H1. }
+      inversion H1. subst. clear H1.
+      destruct H3. subst.
       epose proof (H _ _) as H. Unshelve. all: cycle 1.
       { eexists. repeat rewrite <- app_assoc. simpl. reflexivity. }
       { eexists. repeat rewrite <- app_assoc. simpl. reflexivity. }
-      destruct H. simpl in H. inversion H. clear H. rewrite <- app_assoc in H2.
-      apply app_inv_head in H2. subst. eexists. rewrite <- app_assoc. reflexivity.
-    - intros. destruct H as (_&H&_). specialize (H (fun k_ => match k_ with
-                                                           | nil => b
-                                                           | _ :: k_' => A k_'
-                                                           end)).
-      specialize (H (fun k_ => match k_ with
-                            | nil => b
-                            | _ :: k_' => B0 k_'
-                            end)).
+      destruct H. simpl in H. inversion H. clear H. rewrite <- app_assoc in H1.
+      apply app_inv_head in H1. subst. eexists. rewrite <- app_assoc. reflexivity.
+    - intros. destruct H as (_&H&_).
       specialize (H (g b :: k)).
       destruct H1 as (l1&H1). destruct H2 as (l2&H2).
-      pose proof (H0 (fun k_ => match k_ with
-                            | nil => b
-                            | _ :: k_' => A k_'
-                             end)).
       destruct (f _).
-      { destruct H3. inversion H3. }
+      { destruct H0. inversion H0. }
       destruct H3. inversion H3. subst. clear H3.
-      pose proof (H0 (fun k_ => match k_ with
-                            | nil => b
-                            | _ :: k_' => B0 k_'
-                             end)).
       destruct (f _).
-      { destruct H1. discriminate H1. }
-      destruct H1. inversion H1. subst. clear H1.
+      { discriminate H1. }
+      subst. inversion H1. subst. clear H1.
+      destruct H0. inversion H0. subst. clear H0.
       epose proof (H x _ _) as H. Unshelve. all: cycle 1.
       { eexists. repeat rewrite <- app_assoc. simpl. reflexivity. }
       { eexists. repeat rewrite <- app_assoc. simpl. reflexivity. }
-      destruct H. simpl in H. inversion H. clear H. rewrite <- app_assoc in H2.
-      apply app_inv_head in H2. subst. eexists. rewrite <- app_assoc. reflexivity.
-    - intros. subst. pose proof (H0 (fun k_ : list event => match k_ with
-                                                         | [] => b
-                                                         | _ :: k_' => A k_'
-                                                         end)) as H1'.
-      pose proof (H0 (fun k_ : list event => match k_ with
-                                          | [] => b
-                                          | _ :: k_' => B0 k_'
-                                          end)) as H2'.
-      destruct H1' as (?&H1'). inversion H1'. clear H1'. subst.
-      destruct H2' as (?&H2'). inversion H2'. clear H2'. subst. rewrite H3, H4.
-      rewrite H3, H4 in H2. destruct H as (_&_&H). symmetry in H3.
-      specialize H with (1 := H3). epose proof (H _) as H. rewrite H4 in H.
-      destruct H2. subst. specialize (H ltac:(exists x1; reflexivity)). inversion H.
-      rewrite <- H2. rewrite <- H2. reflexivity.
+      destruct H. simpl in H. inversion H. clear H. rewrite <- app_assoc in H1.
+      apply app_inv_head in H1. subst. eexists. rewrite <- app_assoc. reflexivity.
+    - intros. subst.
+      destruct H0 as (?&H0'). inversion H0'. clear H0'. subst.
+      destruct H1 as (?&H1'). inversion H1'. clear H1'. subst. subst o1' o2'.
+      rewrite H1, H3. rewrite H1, H3 in H2. destruct H as (_&_&H). destruct H2. subst.
+      rewrite H1, H3 in H. specialize (H ltac:(exists x1; reflexivity)).
+      inversion H. repeat rewrite <- H2. reflexivity.
   Qed.
 
   Lemma lists_eq_iff {A : Type} (l1 l2 : list A) :
@@ -482,38 +458,42 @@ Section ShortTheorems.
   Qed.
      
   Lemma reasonable_ext f g1 g2 :
-    fun_reasonable f ->
+    fun_reasonable' f g1 g2 ->
+    fun_reasonable' f g2 g1 ->
+    fun_reasonable' f g1 g1 ->
     (forall k b1, prefix (k ++ [branch b1]) (f g1) -> g2 k = g1 k) ->
     f g1 = f g2.
   Proof. 
-    intros f_reasonable. intros Hsame. apply lists_eq_iff.
+    intros f_reasonable1 f_reasonable2 f_reasonable3. intros Hsame. apply lists_eq_iff.
     split; [|split].
-    - intros H. destruct f_reasonable as (_&_&f_end).
-      eapply f_end; [reflexivity|assumption].
-    - intros H. destruct f_reasonable as (_&_&f_end).
-      eapply f_end; [reflexivity|assumption].
+    - intros H. destruct f_reasonable1 as (_&_&f_end1).
+      apply f_end1. assumption.
+    - intros H. destruct f_reasonable2 as (_&_&f_end2).
+      apply f_end2. assumption.
     - intros. destruct x1.
-      + destruct f_reasonable as (_&f_leak&_). specialize f_leak with (1 := H).
-        destruct H0 as (?&H0). rewrite <- app_assoc in H0. specialize (f_leak g2).
-        epose proof (f_leak _) as f_leak. Unshelve. all: cycle 1.
+      + destruct f_reasonable1 as (_&f_leak1&_). specialize f_leak1 with (1 := H).
+        destruct H0 as (?&H0). rewrite <- app_assoc in H0.
+        destruct f_reasonable2 as (_&f_leak2&_).
+        epose proof (f_leak1 _) as f_leak1. Unshelve. all: cycle 1.
         { eexists. eassumption. }
-        destruct H as (?&H). destruct f_leak as (?&f_leak). rewrite f_leak in H0.
+        destruct H as (?&H). destruct f_leak1 as (?&f_leak1). rewrite f_leak1 in H0.
         rewrite <- app_assoc in H0. apply app_inv_head in H0. inversion H0. clear H0.
         subst. reflexivity.
-      + pose proof f_reasonable as (f_branch&_&_). specialize f_branch with (1 := H).
-        destruct H as (?&H). rewrite <- app_assoc in H. specialize (f_branch g2).
+      + destruct f_reasonable1 as (f_branch1&_&_). specialize f_branch1 with (1 := H).
+        destruct H as (?&H). rewrite <- app_assoc in H.
+        destruct f_reasonable2 as (f_branch2&_&_).
         destruct H0 as (?&H0). rewrite <- app_assoc in H0.
-        epose proof (f_branch _) as f_branch. Unshelve. all: cycle 1.
+        epose proof (f_branch1 _) as f_branch1. Unshelve. all: cycle 1.
         { eexists. eassumption. }
-        destruct f_branch as (?&f_branch). rewrite f_branch in H0.
+        destruct f_branch1 as (?&f_branch1). rewrite f_branch1 in H0.
         rewrite <- app_assoc in H0. apply app_inv_head in H0. inversion H0. subst. clear H0.
         erewrite Hsame. all: cycle 1.
         { eexists. rewrite <- app_assoc. eassumption. }
-        destruct f_reasonable as (f_branch'&_&_). specialize (f_branch' g1 g1 l val).
-        epose proof (f_branch' _ _) as f_branch'. Unshelve. all: cycle 1.
+        destruct f_reasonable3 as (f_branch3&_&_). specialize (f_branch3 l val).
+        epose proof (f_branch3 _ _) as f_branch3. Unshelve. all: cycle 1.
         { eexists. rewrite <- app_assoc. eassumption. }
         { eexists. eassumption. }
-        destruct f_branch' as (?&f_branch'). rewrite f_branch' in H. rewrite <- app_assoc in H.
+        destruct f_branch3 as (?&f_branch3). rewrite f_branch3 in H. rewrite <- app_assoc in H.
         apply app_inv_head in H. inversion H. subst. reflexivity.
   Qed.
 
@@ -658,49 +638,6 @@ Module UseExec.
     Context {locals: map.map String.string word}.
     Context {env: map.map String.string (list String.string * list String.string * cmd)}.
     Context {ext_spec: ExtSpec}.
-
-    Print event.
-    Inductive trace_tree :=
-    | tree_leaf
-    | tree_leak_unit (rest : trace_tree)
-    | tree_leak_bool (b : bool) (rest : trace_tree)
-    | tree_leak_word (w : word) (rest : trace_tree)
-    | tree_leak_list (l : list word) (rest : trace_tree)
-    | tree_branch_word (rest : word -> trace_tree).
-
-    Inductive path : trace -> trace_tree -> Prop :=
-    | path_leaf : path nil tree_leaf
-    | path_leak_unit k t : path k t -> path (leak_unit :: k) (tree_leak_unit t)
-    | path_leak_bool k t b : path k t -> path (leak_bool b :: k) (tree_leak_bool b t)
-    | path_leak_word k t w : path k t -> path (leak_word w :: k) (tree_leak_word w t)
-    | path_leak_list k t l : path k t -> path (leak_list l :: k) (tree_leak_list l t)
-    | path_branch_word k t w : path k (t w) -> path (consume_word w :: k) (tree_branch_word t).
-
-    Print event.
-    Inductive qevent :=
-    | qleak_unit
-    | qleak_bool (b : bool)
-    | qleak_word (w : word)
-    | qleak_list (l : list word)
-    | qconsume_word
-    | qend.
-
-    Definition q (e : event) : qevent :=
-      match e with
-      | leak_unit => qleak_unit
-      | leak_bool b => qleak_bool b
-      | leak_word w => qleak_word w
-      | leak_list l => qleak_list l
-      | consume_word _ => qconsume_word
-      end.
-
-    Print predicts.
-    Inductive predicts : (trace -> qevent) -> trace -> Prop :=
-    | predicts_nil f : f nil = qend ->
-                       predicts f nil
-    | predicts_cons f e k : f nil = q e ->
-                            predicts (fun k_ => f (e :: k_)) k ->
-                            predicts f (e :: k).
 
     Axiom fun_reasonable : forall (f: (trace -> event) -> trace) (A B : trace -> event), Prop.
 

@@ -41,7 +41,7 @@ Section WithEnv.
         exec_nondet e s k t m l mc (fun k' t' m' l' mc' =>
                                       exists k'',
                                         k' = k'' ++ k /\
-                                          (compat (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
+                                          (compat (fun k_ => pick_sp (rev k_ ++ k)) (List.rev k'') ->
                                            fpost pick_sp k' t' m' l' mc')))
     <->
       (forall pick_sp,
