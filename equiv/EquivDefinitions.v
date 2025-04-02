@@ -20,16 +20,67 @@ Require Import Coq.Logic.ChoiceFacts.
 
 Require Import Coq.Lists.List.
 
+Module Leakage.
+  Section GeneralLeakageDefns.
+    Context {L B : Type}.
+    Context (B_inhabited : B).
+
+    (*note that (list event) is the sort of leakage trace discussed in the paper.*)
+    Inductive event :=
+    | leak (val : L)
+    | branch (val : B).
+
+    Inductive qevent : Type :=
+    | qleak (val : L)
+    | qbranch
+    | qend.
+
+    Definition q (e : event) : qevent :=
+      match e with
+      | leak l => qleak l
+      | branch b => qbranch
+      end.
+
+    (*Defn 4.1 of paper*)
+    Definition predicts' (pred : list event -> qevent) (k : list event) :=
+      (forall k1 x k2, k = k1 ++ leak x :: k2 -> pred k1 = qleak x)/\
+        (forall k1 x k2, k = k1 ++ branch x :: k2 -> pred k1 = qbranch) /\
+        pred k = qend.
+
+    (*an equivalent inductive definition*)
+    Inductive predicts : (list event -> qevent) -> list event -> Prop :=
+    | predicts_nil f : f nil = qend -> predicts f nil
+    | predicts_cons f e k : f nil = q e -> predicts (fun k_ => f (e :: k_)) k -> predicts f (e :: k).
+
+    (*Definition 2.3 of the paper*)
+    Definition compat' (oracle : list event -> B) (k : list event) :=
+      forall k1 x k2, k = k1 ++ branch x :: k2 -> oracle k1 = x.
+
+    (*an equivalent inductive definition*)
+    Inductive compat : (list event -> B) -> list event -> Prop :=
+    | compat_nil o : compat o nil
+    | compat_cons_branch o k b : o nil = b -> compat (fun k_ => o (branch b :: k_)) k -> compat o (branch b :: k)
+    | compat_cons_leak o k l : compat (fun k_ => o (leak l :: k_)) k -> compat o (leak l :: k).
+  End GeneralLeakageDefns.
+End Leakage.
+  
 (* BW is not needed on the rhs, but helps infer width *)
 Definition io_event {width: Z}{BW: Bitwidth width}{word: word.word width}{mem: map.map word byte} : Type :=
   (mem * String.string * list word) * (mem * list word).
 
-Inductive event {width: Z}{BW: Bitwidth width}{word: word.word width} : Type :=
-| leak_unit : event
-| leak_bool : bool -> event
-| leak_word : word -> event
-| leak_list : list word -> event
-| consume_word : word -> event.
+Inductive leakage {width: Z}{BW: Bitwidth width}{word: word.word width} :=
+| leak_unit'
+| leak_bool' (b : bool)
+| leak_word' (w : word)
+| leak_list' (l : list word).
+
+Notation leak_unit := (Leakage.leak leak_unit').
+Notation leak_bool b := (Leakage.leak (leak_bool' b)).
+Notation leak_word w := (Leakage.leak (leak_word' w)).
+Notation leak_list l := (Leakage.leak (leak_list' l)).
+
+Definition event {width: Z}{BW: Bitwidth width}{word: word.word width} : Type :=
+  @Leakage.event leakage word.
 
 Section WithIOEvent.
   Context {width: Z}{BW: Bitwidth width}{word: word.word width}{mem: map.map word byte}.
@@ -37,23 +88,6 @@ Section WithIOEvent.
   (*Definition of leakage trace, as in the paper.*)
   Definition trace : Type := list event.
   Definition io_trace : Type := list io_event.
-
-  Definition is_compiler_resolved_nondet e :=
-    match e with
-    | consume_word _ => True
-    | _ => False
-    end.
-
-  (*Definition 3.1 of the paper.*)
-  Inductive compat : (trace -> event) -> trace -> Prop :=
-  | compat_cons :
-    forall f e k,
-      (is_compiler_resolved_nondet e -> f nil = e) ->
-      compat (fun k' => f (e :: k')) k ->
-      compat f (e :: k)
-  | compat_nil :
-    forall f,
-      compat f nil.
 End WithIOEvent.
 
 Definition ExtSpec{width: Z}{BW: Bitwidth width}{word: word.word width}{mem: map.map word byte} :=
@@ -241,7 +275,7 @@ Section stmts.
             (salloc_det = true -> a = pick_sp k) ->
             anybytes a n mStack ->
             map.split mCombined mSmall mStack ->
-            exec body (consume_word a :: k) t mCombined (map.put l x a) (addMetricInstructions 1 (addMetricLoads 1 mc))
+            exec body (Leakage.branch a :: k) t mCombined (map.put l x a) (addMetricInstructions 1 (addMetricLoads 1 mc))
               (fun k' t' mCombined' l' mc' =>
                  exists mSmall' mStack',
                    anybytes a n mStack' /\
