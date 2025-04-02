@@ -74,11 +74,6 @@ Inductive leakage {width: Z}{BW: Bitwidth width}{word: word.word width} :=
 | leak_word' (w : word)
 | leak_list' (l : list word).
 
-Notation leak_unit := (Leakage.leak leak_unit').
-Notation leak_bool b := (Leakage.leak (leak_bool' b)).
-Notation leak_word w := (Leakage.leak (leak_word' w)).
-Notation leak_list l := (Leakage.leak (leak_list' l)).
-
 Definition event {width: Z}{BW: Bitwidth width}{word: word.word width} : Type :=
   @Leakage.event leakage word.
 
@@ -87,6 +82,14 @@ Section WithIOEvent.
 
   (*Definition of leakage trace, as in the paper.*)
   Definition trace : Type := list event.
+  Definition leak := @Leakage.leak leakage word.
+  Definition branch := @Leakage.branch leakage word.
+  Definition leak_unit := leak leak_unit'.
+  Definition leak_bool b := leak (leak_bool' b).
+  Definition leak_word w := leak (leak_word' w).
+  Definition leak_list l := leak (leak_list' l).
+  Definition compat := (@Leakage.compat leakage word).
+  Definition predicts := (@Leakage.predicts leakage word).
   Definition io_trace : Type := list io_event.
 End WithIOEvent.
 

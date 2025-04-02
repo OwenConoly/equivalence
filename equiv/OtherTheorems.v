@@ -5,45 +5,6 @@ Require Import Coq.Logic.ChoiceFacts.
 Require Import equiv.EquivProof. (*just for a tactic or two*)
 
 Section ShortTheorems.
-  Context (L B : Type).
-  Context (B_inhabited : B).
-
-  (*note that (list event) is the sort of leakage trace discussed in the paper.*)
-  Inductive event :=
-  | leak (val : L)
-  | branch (val : B).
-
-  Inductive qevent : Type :=
-  | qleak (val : L)
-  | qbranch
-  | qend.
-
-  Definition q (e : event) : qevent :=
-    match e with
-    | leak l => qleak l
-    | branch b => qbranch
-    end.
-
-  (*Defn 4.1 of paper*)
-  Definition predicts' (pred : list event -> qevent) (k : list event) :=
-    (forall k1 x k2, k = k1 ++ leak x :: k2 -> pred k1 = qleak x)/\
-      (forall k1 x k2, k = k1 ++ branch x :: k2 -> pred k1 = qbranch) /\
-      pred k = qend.
-
-  (*an equivalent inductive definition*)
-  Inductive predicts : (list event -> qevent) -> list event -> Prop :=
-  | predicts_nil f : f nil = qend -> predicts f nil
-  | predicts_cons f e k : f nil = q e -> predicts (fun k_ => f (e :: k_)) k -> predicts f (e :: k).
-
-  (*Definition 2.3 of the paper*)
-  Definition compat' (oracle : list event -> B) (k : list event) :=
-    forall k1 x k2, k = k1 ++ branch x :: k2 -> oracle k1 = x.
-
-  (*an equivalent inductive definition*)
-  Inductive compat : (list event -> B) -> list event -> Prop :=
-  | compat_nil o : compat o nil
-  | compat_cons_branch o k b : o nil = b -> compat (fun k_ => o (branch b :: k_)) k -> compat o (branch b :: k)
-  | compat_cons_leak o k l : compat (fun k_ => o (leak l :: k_)) k -> compat o (leak l :: k).
   
   Lemma predicts'_iff_predicts pred k : predicts' pred k <-> predicts pred k.
   Proof.

@@ -50,33 +50,35 @@ Section semantics.
     Context (m : mem) (l : locals).
     Local Notation eval_expr := (eval_expr m l).
     Local Notation evaluate_call_args_log := (evaluate_call_args_log m l).
-
-     Lemma compat_ext f k g :
-    (forall k', f k' = g k') ->
-    compat f k ->
-    compat g k.
-  Proof.
-    intros H1 H2. revert H1. revert g. induction H2.
-    - intros g0 Hfg0. econstructor.
-      + rewrite <- Hfg0. apply H.
-      + apply IHcompat. intros. apply Hfg0.
-    - intros. constructor.
-  Qed.
+    
+    Lemma compat_ext f g k:
+      (forall k', f k' = g k') ->
+      compat f k ->
+      compat g k.
+    Proof.
+      intros H1 H2. revert H1. revert g. induction H2.
+      - intros. constructor.
+      - intros. constructor.
+        + rewrite <- H1. apply H.
+        + apply IHcompat. intros. apply H1.
+      - intros. constructor. apply IHcompat. auto.
+    Qed.
   
   Lemma predict_cons f k1 k2 e :
-    compat f (k1 ++ e :: k2) ->
-    is_compiler_resolved_nondet e ->
+    compat f (k1 ++ branch e :: k2) ->
     f k1 = e.
   Proof.
     revert k2. revert e. revert f. induction k1.
     - intros. inversion H. subst. auto.
-    - intros. inversion H. subst. apply IHk1 with (1 := H5) (2 := H0).
+    - intros. inversion H; subst; clear H.
+      + apply IHk1 with (1 := H4).
+      + apply IHk1 with (1 := H2).
   Qed.
     
     Lemma eval_expr_extends_trace :
     forall e0 mc k v mc' k',
       eval_expr e0 mc k = Some (v, mc', k') ->
-      exists k'', k' = k'' ++ k /\ forall x, ~In (consume_word x) k''.
+      exists k'', k' = k'' ++ k /\ forall x, ~In (branch x) k''.
     Proof.
       intros e0. induction e0; intros; simpl in *;
         repeat match goal with
@@ -93,17 +95,17 @@ Section semantics.
       - eexists. split; [trace_alignment|]. auto.
       - eexists. split; [trace_alignment|]. auto.
       - specialize IHe0 with (1 := Heqo). fwd. eexists. split; [trace_alignment|].
-        simpl. intros x H. destruct H; [congruence|]. rewrite app_nil_r in H.
+        simpl. intros x H. destruct H; [discriminate H|]. rewrite app_nil_r in H.
         eapply IHe0p1. eassumption.
       - specialize IHe0 with (1 := Heqo). fwd. eexists. split; [trace_alignment|].
-      simpl. intros x H. destruct H; [congruence|].  rewrite app_nil_r in H.
+      simpl. intros x H. destruct H; [discriminate H|].  rewrite app_nil_r in H.
       (*why does eauto not work here:( *) eapply IHe0p1. eassumption.
     - specialize IHe0_1 with (1 := Heqo). specialize IHe0_2 with (1 := Heqo0). fwd.
       eexists. split; [trace_alignment|]. intros x H. rewrite app_nil_r in H.
-      assert (In (consume_word x) (k'' ++ k''0)).
+      assert (In (branch x) (k'' ++ k''0)).
       + destruct op; simpl in H; try assumption.
-        all: destruct H; [congruence|]; try assumption.
-        all: destruct H; [congruence|]; assumption.
+        all: destruct H; [discriminate H|]; try assumption.
+        all: destruct H; [discriminate H|]; assumption.
       + apply in_app_or in H0. destruct H0.
         -- eapply IHe0_2p1. eassumption.
         -- eapply IHe0_1p1. eassumption.
@@ -111,17 +113,17 @@ Section semantics.
       + specialize IHe0_3 with (1 := H). fwd. eexists. split; [trace_alignment|].
         intros x H'. rewrite app_nil_r in H'. apply in_app_or in H'. destruct H'.
         -- eapply IHe0_3p1. eassumption.
-        -- destruct H0; [congruence|]. eapply IHe0_1p1. eassumption.
+        -- destruct H0; [discriminate H0|]. eapply IHe0_1p1. eassumption.
       + specialize IHe0_2 with (1 := H). fwd. eexists. split; [trace_alignment|].
         intros x H'. rewrite app_nil_r in H'. apply in_app_or in H'. destruct H'.
         -- eapply IHe0_2p1. eassumption.
-        -- destruct H0; [congruence|]. eapply IHe0_1p1. eassumption.
+        -- destruct H0; [discriminate H0|]. eapply IHe0_1p1. eassumption.
   Qed.
 
   Lemma evaluate_call_args_log_extends_trace :
     forall arges mc k args mc' k',
     evaluate_call_args_log arges mc k = Some (args, mc', k') ->
-    exists k'', k' = k'' ++ k /\ forall x, ~In (consume_word x) k''.
+    exists k'', k' = k'' ++ k /\ forall x, ~In (branch x) k''.
   Proof.
     intros arges. induction arges.
     - simpl. intros. injection H. intros. subst. eexists. split; [trace_alignment|]. auto.
@@ -292,7 +294,7 @@ Section WithEnv.
       (_ : anybytes a n mStack)
       (_ : map.split mCombined mSmall mStack)
     : step (sstackalloc x n body) k t mSmall l mc
-        (sseq body (end_stackalloc n a)) (consume_word a :: k) t mCombined (map.put l x a) (ami 1 (aml 1 mc))
+        (sseq body (end_stackalloc n a)) (branch a :: k) t mCombined (map.put l x a) (ami 1 (aml 1 mc))
   | stackalloc_end_step n a
       k t mCombined l mc
       mSmall mStack
@@ -1990,32 +1992,31 @@ Section WithEnv.
     intros H1 H2. apply H1. clear H1. fwd. exists st'.*)
 
   Lemma compat_trivially k :
-    (forall x, ~In (consume_word x) k) ->
+    (forall x, ~In (branch x) k) ->
     forall f,
       compat f k.
   Proof.
-    induction k; constructor.
-    - intros Ha. destruct a; destruct Ha. simpl in H. specialize (H r). tauto.
-    - apply IHk. intros x Hx. eapply H. simpl. right. eassumption.
+    induction k; [constructor|]. intros. destruct a.
+    - constructor. apply IHk. intros x. specialize (H x). simpl in H. auto.
+    - exfalso. eapply H. left. reflexivity.
   Qed.
   
-  Lemma fold_app : (fix app (l m0 : list event) {struct l} : list event :=
-                      match l with
-                      | nil => m0
-                      | a1 :: l1 => a1 :: app l1 m0
-                      end) = @List.app event.
+  Lemma fold_app : (fix app (l m : list Leakage.event) {struct l} : list Leakage.event :=
+        match l with
+        | nil => m
+        | a :: l1 => a :: app l1 m
+        end) = @List.app event.
   Proof. reflexivity. Qed.
-
+  
   Lemma compat_app k1 k2 f :
     compat f k1 ->
     compat (fun k => f (k1 ++ k)) k2 ->
     compat f (k1 ++ k2).
   Proof.
-    revert k2. revert f. induction k1.
-    - intros. assumption.
-    - intros. inversion H. subst. clear H. constructor.
-      + assumption.
-      + rewrite fold_app. apply IHk1; assumption.
+    revert k2. revert f. induction k1; [intros; assumption|]. intros. destruct a.    
+    - constructor. rewrite fold_app. apply IHk1; auto. inversion H. assumption.
+    - inversion H. subst. clear H. constructor; auto. rewrite fold_app.
+      apply IHk1; auto.
   Qed.
 
   Lemma compat_app_inv k1 k2 f :
@@ -2024,17 +2025,17 @@ Section WithEnv.
   Proof.
     intros H. revert f H. induction k1.
     - intros f H. split; [constructor|assumption].
-    - intros f H. inversion H. subst. apply IHk1 in H4. fwd. split.
-      + constructor; assumption.
-      + assumption.
-  Qed.      
+    - intros f H. inversion H; subst; clear H.
+      + apply IHk1 in H4. fwd. split; try constructor; auto.
+      + apply IHk1 in H2. fwd. split; try constructor; auto.
+  Qed.
     
   Lemma step_state_equiv {pick_sp : PickSp} st st' :
     state_step true st st' <->
       (state_step false st st' /\
          exists k'',
            get_trace st' = k'' ++ get_trace st /\
-             compat (fun k_ => consume_word (pick_sp (rev k_ ++ get_trace st))) (List.rev k'')).
+             compat (fun k_ => pick_sp (rev k_ ++ get_trace st)) (List.rev k'')).
   Proof.
     destr_sstate st. destr_sstate st'. subst. simpl. split.
     { intros H; induction H; fwd.
@@ -2043,16 +2044,16 @@ Section WithEnv.
       all: repeat rewrite app_nil_r; simpl.
       all: try (apply compat_trivially; intros;
                 repeat (rewrite in_app_iff || rewrite <- in_rev || simpl);
-                intuition eauto; congruence).
+                intuition eauto; match goal with | H: _ = branch _ |- _ => discriminate H end).
       - constructor.
-        + intros _. specialize (H0 eq_refl). subst. reflexivity.
+        + specialize (H0 eq_refl). subst. reflexivity.
         + constructor.
       - assumption. }
     { intros [H1 H2]. revert H2. induction H1; intros; fwd; try (econstructor; eauto).
       intros _.
-      replace (consume_word a :: k) with ((consume_word a :: nil) ++ k) in H3p0 by reflexivity.
+      replace (branch a :: k) with ((branch a :: nil) ++ k) in H3p0 by reflexivity.
       apply app_inv_tail in H3p0. subst. simpl in H3p1. inversion H3p1. subst.
-      simpl in H6. specialize (H6 I). inversion H6. subst. reflexivity. }
+      simpl in H7. inversion H7. subst. reflexivity. }
   Qed.
 
   Lemma step_ostate_equiv {pick_sp : PickSp} f i :
@@ -2060,7 +2061,7 @@ Section WithEnv.
       (step_ostate false f i /\
          exists k'',
            oget_trace (f (S i)) = k'' ++ oget_trace (f i) /\
-             compat (fun k_ => consume_word (pick_sp (rev k_ ++ oget_trace (f i)))) (List.rev k'')).
+             compat (fun k_ => pick_sp (rev k_ ++ oget_trace (f i))) (List.rev k'')).
   Proof.
     cbv [step_ostate]. split.
     - intros H.
@@ -2077,7 +2078,7 @@ Section WithEnv.
       ((forall i, i < n -> step_ostate false f i) /\
          exists k'',
            oget_trace (f n) = k'' ++ oget_trace (f O) /\
-             compat (fun k_ => consume_word (pick_sp (rev k_ ++ oget_trace (f O)))) (rev k'')).
+             compat (fun k_ => pick_sp (rev k_ ++ oget_trace (f O))) (rev k'')).
   Proof.
     induction n.
     - split.
@@ -2097,7 +2098,7 @@ Section WithEnv.
            { rewrite Hp0. rewrite IHnp1p0. trace_alignment. }
            rewrite app_nil_r. rewrite rev_app_distr. apply compat_app.
            ++ assumption.
-           ++ eapply compat_ext. 2: eassumption. simpl. intros. f_equal. f_equal.
+           ++ eapply compat_ext. 2: eassumption. simpl. intros. f_equal.
               rewrite rev_app_distr. rewrite rev_involutive. repeat rewrite <- app_assoc.
               rewrite IHnp1p0. reflexivity.
       + destruct IHn as [_ IHn]. intros H. fwd.
@@ -2207,7 +2208,7 @@ Section WithEnv.
      satisfies_nondet f (fun k' t' m' l' mc' =>
                            exists k'',
                              k' = k'' ++ k /\
-                               (compat (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
+                               (compat (fun k_ => pick_sp (rev k_ ++ k)) (List.rev k'') ->
                                 fpost pick_sp k' t' m' l' mc'))) ->
     possible_execution_det f ->
     satisfies_det f (fpost pick_sp).
@@ -2254,7 +2255,7 @@ Section WithEnv.
   Lemma pick_sp_works {pick_sp : PickSp} f :
     possible_execution_nondet f ->
     possible_execution_det (pick_sp := (fun k => match trace_with_length f (S (length k)) with
-                                                 | consume_word w :: _ => w
+                                                 | Leakage.branch w :: _ => w
                                                  | _ => word.of_Z 0
                                                  end)) f.
   Proof.
@@ -2284,7 +2285,7 @@ Section WithEnv.
     f O = Some (s, k, t, m, l, mc) ->
     possible_execution_nondet f ->
     let pick_sp' := fun k => match trace_with_length f (S (length k)) with
-                                                  | consume_word w :: _ => w
+                                                  | Leakage.branch w :: _ => w
                                                   | _ => word.of_Z 0
                                                   end in
     (possible_execution_det (pick_sp := pick_sp') f ->
@@ -2330,7 +2331,7 @@ Section WithEnv.
     (forall i,
       match f i with
       | Some st => exists k'', get_trace st = k'' ++ k /\
-                                 compat (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'')
+                                 compat (fun k_ => pick_sp (rev k_ ++ k)) (List.rev k'')
       | None => True
       end) ->
     possible_execution_det f.
@@ -2341,10 +2342,10 @@ Section WithEnv.
       destruct (f (S i)) as [fSi|]; [|destruct H2]. simpl in *. fwd. destr_sstate fi. destr_sstate fSi.
       subst. simpl in H3ip0, H3Sip0. clear H3ip1. induction H2; subst; try solve [econstructor; eauto].
       + econstructor; eauto. intros _.
-      replace (consume_word a :: k''0 ++ k) with ((consume_word a :: k''0) ++ k) in H3Sip0 by reflexivity.
+      replace (branch a :: k''0 ++ k) with ((branch a :: k''0) ++ k) in H3Sip0 by reflexivity.
       apply app_inv_tail in H3Sip0. subst. Check compat_app_inv. simpl in H3Sip1.
       apply compat_app_inv in H3Sip1. destruct H3Sip1 as [_ H3Sip1]. inversion H3Sip1. subst.
-      specialize (H7 I). inversion H7. subst. rewrite app_nil_r. rewrite rev_involutive. reflexivity.
+      inversion H8. subst. rewrite app_nil_r. rewrite rev_involutive. reflexivity.
       + econstructor. eapply IHstep; reflexivity.
     - clear H3. right. left. cbv [stuck_ostate] in *. fwd. intuition. destruct (f i) as [fi|]; [|destruct H2p0].
       apply nondet_stuck_det_stuck. assumption.
@@ -2362,7 +2363,7 @@ Section WithEnv.
    satisfies_nondet f (fun k' t' m' l' mc' =>
                          exists k'',
                            k' = k'' ++ k /\
-                             (compat (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
+                             (compat (fun k_ => pick_sp (rev k_ ++ k)) (List.rev k'') ->
                               fpost pick_sp k' t' m' l' mc')).
   Proof.
     intros. Check det_to_nondet_terminates. specialize det_to_nondet_terminates with (1 := H) (2 := H0).
@@ -2395,7 +2396,7 @@ Section WithEnv.
         satisfies_nondet (pick_sp := pick_sp) f (fun k' t' m' l' mc' =>
                                       exists k'',
                                         k' = k'' ++ k /\
-                                          (compat (fun k_ => consume_word (pick_sp (rev k_ ++ k))) (List.rev k'') ->
+                                          (compat (fun k_ => pick_sp (rev k_ ++ k)) (List.rev k'') ->
                                            fpost pick_sp k' t' m' l' mc')))
     <->
       (forall pick_sp f,
