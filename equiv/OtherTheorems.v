@@ -280,29 +280,6 @@ Section ShortTheorems.
     | _ :: part', _ :: whole' => get_next part' whole'
     | _ :: _, nil => qend (*garbage*)
     end.
-
-  Fixpoint predictor_of_fun (f : (list event -> B) -> list event) (k : list event) : qevent :=
-    match k with
-    | nil => match f (fun _ => B_inhabited) with
-            | branch _ :: _ => qbranch
-            | leak x :: _ => qleak x
-            | nil => qend
-            end
-    | e :: k' =>
-        predictor_of_fun (fun o(*assumes no e*) => match f (fun k_(*assumes e*) =>
-                                                           match k_ with
-                                                           | nil =>
-                                                               match e with
-                                                               | leak _ => B_inhabited
-                                                               | branch b => b
-                                                               end
-                                                           | _ :: k_' => o k_'
-                                                           end) with
-                                                | _ :: k'_ => k'_
-                                                | _ => nil (*garbage*)
-                                                end)
-          k'
-    end.
   
   Definition predictor_of_fun_alt (f : (list event -> B) -> list event) (k : list event) : qevent :=
     let full_trace := f (oracle_of_trace k) in
@@ -343,8 +320,6 @@ Section ShortTheorems.
 
   Import List.ListNotations.
 
-  Context (possible : (list event -> B) -> Prop).
-
   Definition fun_reasonable' (f : (list event -> B) -> list event) A B :=
     (forall k b1,
         prefix (k ++ [branch b1]) (f A) ->
@@ -357,11 +332,11 @@ Section ShortTheorems.
       (prefix (f A) (f B) ->
        f A = f B).
 
-  Definition fun_reasonable f := forall A B, possible A -> possible B -> fun_reasonable' f A B.
+  Definition fun_reasonable possible f := forall A B, possible A -> possible B -> fun_reasonable' f A B.
 
-  Lemma reasonableness_preserved f :
-    fun_reasonable f ->
-    fun_reasonable (fun o => match f o with
+  Lemma reasonableness_preserved possible f :
+    fun_reasonable possible f ->
+    fun_reasonable possible (fun o => match f o with
                           | _ :: l => l
                           | nil => nil
                           end).
@@ -497,37 +472,84 @@ Section ShortTheorems.
         apply app_inv_head in H. inversion H. subst. reflexivity.
   Qed.
 
-  Lemma predictor_from_nowhere f :
-    fun_reasonable f ->
+  Fixpoint predictor_of_fun o (f : (list event -> B) -> list event) (k : list event) : qevent :=
+    match k with
+    | nil => match f o with
+            | branch _ :: _ => qbranch
+            | leak x :: _ => qleak x
+            | nil => qend
+            end
+    | e :: k' =>
+        predictor_of_fun (fun k => o (e :: k)) (fun o(*assumes no e*) => match f (fun k_(*assumes e*) =>
+                                                           match k_ with
+                                                           | nil =>
+                                                               match e with
+                                                               | leak _ => B_inhabited
+                                                               | branch b => b
+                                                               end
+                                                           | _ :: k_' => o k_'
+                                                           end) with
+                                                | _ :: k'_ => k'_
+                                                | _ => nil (*garbage*)
+                                                end)
+          k'
+    end.
+
+  Lemma reasonable_more_ext f o1 o1' o2 o2' :
+    f o1' = f o1 ->
+    f o2' = f o2 ->
+    (forall k b1, prefix (k ++ [branch b1]) (f o2) -> o2' k = o2 k) ->
+    fun_reasonable' f o1 o2 ->
+    fun_reasonable' f o1' o2'.
+  Proof.
+    intros. cbv [fun_reasonable'] in *. repeat rewrite H, H0. intuition.
+    erewrite H1; eauto.
+  Qed.
+
+  Lemma predictor_from_nowhere f (possible : _ -> Prop) o :
+    possible o ->
+    fun_reasonable possible f ->
     exists pred,
     forall k,
-      predicts pred k <-> (forall A, (compat A k -> k = f A)).
+      predicts pred k <-> (forall A, possible A -> (compat A k -> k = f A)).
   Proof.
-    intros f_reasonable. exists (predictor_of_fun f). intros. split.
-    - intros Hpred A Hcompat.
-      revert f f_reasonable Hpred.
-      induction Hcompat; intros f f_reasonable Hpred.
+    intros Ho f_reasonable. exists (predictor_of_fun o f). intros. split.
+    - intros Hpred A Hposs Hcompat.
+      revert possible Hposs o Ho f f_reasonable Hpred.
+      induction Hcompat; intros possible Hposs o0 Ho0 f f_reasonable Hpred.
       + inversion Hpred. clear Hpred. subst. cbv [predictor_of_fun] in H. simpl in H.
         destruct (f _) eqn:E; cycle 1. { destruct e; discriminate H. }
-        destruct f_reasonable as (_&_&f_end).
-        eapply f_end. 1: symmetry; eassumption. eexists. reflexivity.
+        destruct (f_reasonable o0 o ltac:(assumption) ltac:(assumption)) as (_&_&f_end).
+        rewrite E in f_end. apply f_end. eexists. reflexivity.
       + inversion Hpred. subst. clear Hpred. 
-        simpl in H3. destruct (f (fun _ => B_inhabited)) eqn:E; try discriminate H3.
+        simpl in H3. destruct (f o0) eqn:E; [discriminate H3|].
         destruct e; try discriminate H3. clear H3.
         pose proof f_reasonable as f_reasonable'.
-        destruct f_reasonable' as (f_branch&_&_).
-        epose proof (f_branch (fun _ => B_inhabited) o nil val _ _) as H.
+        destruct (f_reasonable' o0 o ltac:(assumption) ltac:(assumption)) as (f_branch&_&_).
+        epose proof (f_branch nil val _ _) as H.
         Unshelve. all: cycle 1.
         { eexists. simpl. rewrite E. reflexivity. }
         { eexists. reflexivity. }
         destruct H as [l' H]. simpl in H. rewrite H. f_equal.
-        simpl in H4. specialize IHHcompat with (2 := H4).
+        simpl in H4. specialize IHHcompat with (4 := H4).
         Check reasonableness_preserved'.
-        epose proof (IHHcompat (reasonableness_preserved' _ _ _ f_reasonable _)) as IHHcompat.
-        Unshelve. all: cycle 2.
-        { intros. instantiate (1 := fun x => branch x). simpl.
-          specialize (f_branch o A nil (o []) ltac:(exists l'; rewrite H; reflexivity)).
+        epose proof (IHHcompat (fun o0' => exists o0, possible o0 /\ forall k, o0 (branch (o []) :: k) = o0' k) _ _ _) as IHHcompat.
+        Unshelve. all: cycle 1.
+        { simpl. exists o. auto. }
+        { simpl. exists o0. auto. }
+        { intros o1 o2 Ho1 Ho2. eapply reasonableness_preserved'.
+          - fwd. specialize (f_reasonable' o4 o3 ltac:(assumption) ltac:(assumption)).
+            eapply reasonable_more_ext. 4: exact f_reasonable'.
+            + apply reasonable_ext.
+            specialize (f_branch o A nil (o []) ltac:(exists l'; rewrite H; reflexivity)).
           specialize (f_branch ltac:(eexists; reflexivity)).
+
+          ; cycle 1.
+          { rewrite 
+          apply reasonable_ext.
+          - fwd. eapply f_reasonable'.
+            + eexists. specialize (f_reasonable' o1 o2 Ho1 Ho2).
+            intros. instantiate (1 := fun x => branch x). simpl.
           simpl in f_branch. apply f_branch. }
         subst. erewrite <- reasonable_ext. 1: rewrite H; reflexivity.
         1: assumption. intros. destruct k; [reflexivity|]. destruct H0 as (?&H0).
