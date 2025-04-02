@@ -741,6 +741,31 @@ Module UseExec.
                             predicts (fun k_ => f (e :: k_)) k ->
                             predicts f (e :: k).
 
+    Axiom fun_reasonable : forall (f: (trace -> event) -> trace) (A B : trace -> event), Prop.
+
+    Definition strongest_post e s k t m l mc k' t' m' l' mc' :=
+      exec_nondet e s k t m l mc (fun _ _ _ _ _ => True) /\
+      forall P, exec_nondet e s k t m l mc P -> P k' t' m' l' mc'.
+
+    Definition possible e s k t m l mc A :=
+      exists k' t' m' l' mc', strongest_post e s k t m l mc k' t' m' l' mc' /\ compat A k'.
+
+    Axiom possible' : forall (A : trace -> event), Prop.
+    
+    Lemma predictor_from_nowhere f :
+      (forall A B, possible' A -> possible' B -> fun_reasonable f A B) ->
+      exists pred,
+      forall k,
+        predicts pred k <-> (forall A, possible' A -> (compat A k -> k = f A)).
+    Admitted.
+
+    Lemma funs_reasonable e s k t m l mc f A B :
+      possible e s k t m l mc A ->
+      possible e s k t m l mc B ->
+      fun_reasonable f A B.
+    Proof.
+      intros. cbv [fun_reasonable].
+
     Check exec_nondet.
 
     Fixpoint tree_of_trace (k : trace) : trace_tree. Admitted.
@@ -774,8 +799,6 @@ Module UseExec.
                                                                      | H: _ |- _ => pose proof (Hpost _ _ _ _ _ H); clear H end; try clear Hpost post; fwd; subst_exprs; try
       (eexists (tree_of_trace _); econstructor; eauto; eexists; split; trace_alignment;
        try rewrite app_nil_r; apply tree_of_trace_works).
-      4: {
-        Check intersect.
-      - eexists 
-        { Search eval_expr.
-        try rewrite app_nil_r. apply tree_of_trace_works.
+      4: { Abort.
+
+    Lemma ct_impl_pred_ct e s k t m l mc 
