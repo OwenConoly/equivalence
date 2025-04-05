@@ -506,6 +506,53 @@ Section ShortTheorems.
     erewrite H1; eauto.
   Qed.
 
+  Lemma fun_reasonable_other (possible : _ -> Prop) f x :
+    (forall o1 o2, possible o1 ->
+              (forall k b1, prefix (k ++ [branch b1]) (f o1) -> o2 k = o1 k) ->
+              possible o2) ->
+    fun_reasonable possible f ->
+    fun_reasonable
+    (fun o0' : list event -> B =>
+     exists o1 : list event -> B,
+       possible o1 /\ (forall k0 : list event, o1 (branch x :: k0) = o0' k0))
+    (fun o1 : list event -> B =>
+     match
+       f (fun k_ : list event => match k_ with
+                                 | [] => x
+                                 | _ :: k_' => o1 k_'
+                                 end)
+     with
+     | [] => []
+     | _ :: k'_ => k'_
+     end).
+  Proof.
+    intros Hposs H. intros o0 o1 Ho0 Ho1. fwd.
+    pose proof (H o2 o3 ltac:(assumption) ltac:(assumption)) as Ho2o3.
+    split; [|split].
+    - intros. destruct Ho2o3 as (Ho2o3&_&_). specialize (Ho2o3 (branch x :: k) b1).
+      destruct H0 as (?&H0). destruct (f (fun k_ => _)) eqn:E0.
+      { destruct k; simpl in H0; discriminate H0. }
+      eassert (f o2 = e::l).
+      { rewrite <- E0. apply reasonable_ext.
+        - apply H; [assumption|]. apply (Hposs o2 _ ltac:(assumption)).
+          intros. destruct k0.
+          + destruct H2 as (?&H2). simpl in H2.
+            pose proof (H o2 o2 ltac:(assumption) ltac:(assumption)) as Ho2o2.
+            destruct Ho2o2 as (Hbranch&_&_). specialize (Hbranch nil b0).
+            edestruct Hbranch as (?&Hbranch').
+            -- eexists. rewrite H2. reflexivity.
+            -- eexists. reflexivity.
+            -- simpl in Hbranch'. rewrite H2 in Hbranch'. inversion Hbranch'. subst.
+               Search x.
+               
+          rewrite <- Ho0p1. 1,2,3: apply H. 3: apply H; assumption.
+        - eapply reasonable_more_ext.
+      replace (f o2) th (f _).
+      subst. 
+      destruct H1 as (?&H1). move E0 after H1. destruct (f (fun k_ => _)) eqn:E1.
+      { destruct 
+      
+
   Lemma predictor_from_nowhere f (possible : _ -> Prop) o :
     possible o ->
     fun_reasonable possible f ->
