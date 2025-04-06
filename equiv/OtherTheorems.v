@@ -843,17 +843,134 @@ Module UseExec.
         Search l'0. Search l'. rewrite H1p0 in H15p0. inversion H15p0. subst.
         assumption.
     Qed.
-        
-    Lemma exec_iff_impl_by_strongest_post e s k t m l mc post :
-      exec_nondet e s k t m l mc post <->
-        (exec_nondet e s k t m l mc (fun _ _ _ _ _ => True) /\ forall k' t' m' l' mc', strongest_post e s k t m l mc k' t' m' l' mc' -> post k' t' m' l' mc').
+
+    Lemma exec_to_strongest_post e s k t m l mc post :
+      exec_nondet e s k t m l mc post ->
+      exec_nondet e s k t m l mc (strongest_post e s k t m l mc).
     Proof.
-      split.
-      - intros H. split.
-        + eapply weaken. 1: eassumption. auto.
-        + cbv [strongest_post]. intros * H'. apply H'. apply H.
-      - cbv [strongest_post]. intros (H1&H2).
-      
+      intros. eapply weaken. 1: apply exec_to_strongest_post'; eassumption.
+      simpl. intros. fwd. auto.
+    Qed.
+        
+    Lemma exec_iff_impl_by_strongest_post e s k t m l mc post0 :
+      exec_nondet e s k t m l mc post0 ->
+      forall post,
+      exec_nondet e s k t m l mc post <->
+        (forall k' t' m' l' mc', strongest_post e s k t m l mc k' t' m' l' mc' -> post k' t' m' l' mc').
+    Proof.
+      intros H post. apply exec_to_strongest_post in H. split.
+      - intros H1. cbv [strongest_post]. intros * H'. apply H'. apply H1.
+      - intros H'. eapply weaken. 1: eassumption. assumption.
+    Qed.
+
+    Import List.ListNotations.
+
+    Definition possible_trace e s k t m l mc k' := exists t' m' l' mc', strongest_post e s k t m l mc k' t' m' l' mc'.
+
+    Definition exactly (k': trace) (t' : io_trace) (m' : mem) (l' : locals) (mc' : MetricLog) := fun k'0 t'0 m'0 l'0 mc'0 => k'0 = k' /\ t'0 = t' /\ m'0 = m' /\ l'0 = l' /\ mc'0 = mc'.
+
+    Lemma id_is_nil {A : Type} (l1 l2 : list A) :
+      l1 ++ l2 = l2 -> l1 = nil.
+    Proof. intros. eapply app_inv_tail. simpl. eassumption. Qed.
+
+    Lemma rev_nil_nil {A : Type} (l : list A) :
+      rev l = nil -> l = nil.
+    Proof. intros. rewrite <- (rev_involutive l). rewrite H. reflexivity. Qed.
+
+    Lemma rev_inj {A : Type} (l1 l2 : list A) :
+      rev l1 = rev l2 -> l1 = l2.
+    Proof. intros. rewrite <- (rev_involutive l1). rewrite H. apply rev_involutive. Qed.
+    
+     Lemma trace_is_sane e s k t m l mc k1' k2' k' evt post0 :
+       exec_nondet e s k t m l mc post0 ->
+       possible_trace e s k t m l mc k1' ->
+       possible_trace e s k t m l mc k2' ->
+       (exists k1'', k1' = k1'' ++ evt :: k') ->
+       (exists k2'', k2' = k2'' ++ k') ->
+       exists evt' k2'', k2' = k2'' ++ evt' :: k' /\ Leakage.q evt = Leakage.q evt'.
+     Proof.
+       intros nontriv. induction nontriv.
+       - intros poss1 poss2 pre1 pre2.
+         cbv [possible_trace strongest_post] in poss1, poss2. fwd.
+         epose proof (poss1 (exactly _ _ _ _ _) _) as poss1. Unshelve. all: cycle 1.
+         { econstructor. cbv [exactly]. eauto. }
+         epose proof (poss2 (exactly _ _ _ _ _) _) as poss2. Unshelve. all: cycle 1.
+         { econstructor. cbv [exactly]. eauto. }
+         cbv [exactly] in poss1, poss2. fwd. destruct pre1, pre2. subst.
+         exists evt. cbv [prefix]. eauto.
+       - intros poss1 poss2 pre1 pre2.
+         cbv [possible_trace strongest_post] in poss1, poss2. fwd.
+         epose proof (poss1 (exactly _ _ _ _ _) _) as poss1. Unshelve. all: cycle 1.
+         { econstructor; eauto. cbv [exactly]. eauto. }
+         epose proof (poss2 (exactly _ _ _ _ _) _) as poss2. Unshelve. all: cycle 1.
+         { econstructor; eauto. cbv [exactly]. eauto. }
+         cbv [exactly] in poss1, poss2. fwd. destruct pre1, pre2. subst.
+         exists evt. cbv [prefix]. eauto.
+       - intros poss1 poss2 pre1 pre2.
+         cbv [possible_trace strongest_post] in poss1, poss2. fwd.
+         epose proof (poss1 (exactly _ _ _ _ _) _) as poss1. Unshelve. all: cycle 1.
+         { econstructor; eauto. cbv [exactly]. eauto. }
+         epose proof (poss2 (exactly _ _ _ _ _) _) as poss2. Unshelve. all: cycle 1.
+         { econstructor; eauto. cbv [exactly]. eauto. }
+         cbv [exactly] in poss1, poss2. fwd. destruct pre1, pre2. subst.
+         exists evt. cbv [prefix]. eauto.
+       - intros poss1 poss2 pre1 pre2.
+         cbv [possible_trace strongest_post] in poss1, poss2. fwd.
+         epose proof (poss1 (exactly _ _ _ _ _) _) as poss1. Unshelve. all: cycle 1.
+         { econstructor; eauto. cbv [exactly]. eauto. }
+         epose proof (poss2 (exactly _ _ _ _ _) _) as poss2. Unshelve. all: cycle 1.
+         { econstructor; eauto. cbv [exactly]. eauto. }
+         cbv [exactly] in poss1, poss2. fwd. destruct pre1, pre2. subst.
+         exists evt. cbv [prefix]. eauto.
+       - intros poss1 poss2 pre1 pre2.
+         cbv [possible_trace strongest_post] in poss1, poss2. fwd.
+         epose proof (poss1 (fun k'1 t'1 m'1 l'1 mc'1 => exists a mStack mCombined,
+                                 anybytes a n mStack /\
+                                   map.split mCombined mSmall mStack /\
+                                   exists k1'_, k1' = branch a :: k1'_)
+                                 _) as poss1. Unshelve. all: cycle 1.
+         { econstructor; eauto. intros. Search exec. eapply weaken. 1: eauto. simpl. intros.
+           fwd. do 2 eexists. intuition eauto. }
+         simpl in poss1.
+         epose proof (poss2 _ _) as poss2. Unshelve. all: cycle 1.
+         { econstructor; eauto. }
+         cbv [exactly] in poss1, poss2. fwd.
+         assert (rev k1_' ++ k = rev k2_' ++ k) as H' by (rewrite poss1p0, poss2p0; reflexivity).
+         clear poss1p0 poss2p0.
+         apply app_inv_tail in H'. apply rev_inj in H'. subst.
+         exists evt. auto.
+         
+         cbv [exactly] in poss1. fwd.
+         apply id_is_nil in poss1p0.
+         apply rev_nil_nil in poss1p0.
+         subst. destruct pre as (?&pre). rewrite <- app_assoc in pre.
+         Search (nil = _ ++ _ :: _). apply app_cons_not_nil in pre. destruct pre.
+         revert H0p0. assert ((rev k1' ++ k = k) = (rev k1' ++ k = [] ++ k)) as -> by reflexivity.
+         subst. idtac.
+                                                      eassert _ as Ex. 2: specialize H0 with (1 := Ex). simpl in H0.
+       poss1 poss2 prefix. cbv [possible_trace] in poss1, poss2. fwd.
+       
+       cbv [strongest_post] in poss1, poss2. specialize poss1 with (1 := nontriv).
+       
+       
+b
+    Print fun_reasonable.
+    Lemma reasonable e s k t m l mc f :
+      exec_nondet e s k t m l mc (fun k' t' m' l' mc' => exists k'',
+                                      k' = k'' ++ k /\
+                                        (forall A, compat A (rev k'') -> (rev k'') = f A)) ->
+      let possible_k := (fun k' => exists t' m' l' mc', strongest_post e s k t m l mc (rev k' ++ k) t' m' l' mc') in
+      fun_reasonable (fun o => exists k, possible_k k /\ compat o k) f.
+    Proof.
+      intros H. pose proof (exec_iff_impl_by_strongest_post _ _ _ _ _ _ _ _ H) as H0.
+      rewrite H0 in H. clear H0.
+      split; [|split].
+      - fwd. apply H in H0p0, H1p0. fwd. apply app_inv_tail in H0p0p0, H1p0p0. subst.
+        simpl. rewrite rev_involutive in *. specialize H0p0p1 with (1 := H0p1).
+        specialize H1p0p1 with (1 := H1p1). subst. intros.
+        rewrite <- compat'_iff_compat in H0p1. Check Leakage.compat'.
+
+        
     Lemma oracles_to_predictors e s k t m l mc f :
       exec_nondet e s k t m l mc (fun k' t' m' l' mc' => exists k'',
                                       k' = k'' ++ k /\
@@ -862,10 +979,15 @@ Module UseExec.
         exec_nondet e s k t m l mc (fun k' t' m' l' mc' => exists k'',
                                         k' = k'' ++ k /\
                                           predicts pred (rev k'')).
+    Proof.
+      intros H. epose proof (exec_iff_impl_by_strongest_post _ _ _ _ _ _ _ _ H) as H0.
+      rewrite H0 in H. eenough (exists pred, _) as H1.
+      { destruct H1 as (pred&H1). exists pred. rewrite H0. exact H1. }
+      clear H0. pose proof (@predictor_from_nowhere leakage word (word.of_Z 0)) as H'.
+      specialize (H' f (fun k' => exists t' m' l' mc', strongest_post e s k t m l mc (rev k' ++ k) t' m' l' mc')).
+      simpl in H'. eassert _ as f_reasonable. 2: specialize (H' f_reasonable).
+      { 
 
-    Definition possible e s k t m l mc k' := exists t' m' l' mc', strongest_post e s k t m l mc k' t' m' l' mc'.
-
-    Check (@predictor_from_nowhere leakage word (word.of_Z 0)).
 
     Axiom fun_reasonable : forall (f: (trace -> event) -> trace) (A B : trace -> event), Prop.
 
@@ -894,7 +1016,6 @@ Module UseExec.
 
     Lemma tree_of_trace_works k : path k (tree_of_trace k). Admitted.
 
-    Import List.ListNotations.
 
     Definition id (X: Type) := X.
     Opaque id.
