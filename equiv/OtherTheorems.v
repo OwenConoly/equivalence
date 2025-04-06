@@ -821,16 +821,28 @@ Module UseExec.
         apply H2p1 in H5. apply H12 in H5. apply H2p3 in H5. assumption.
       - eapply while_false; eauto. intuition. cbv [strongest_post]. intros. intersect_stuff.
         2: congruence. assumption.
-      - eapply while_true; eauto. simpl. intros. fwd. eapply weaken; eauto. intros.
+      - eapply while_true; eauto. simpl. intros. fwd. eapply weaken.
+        1: apply H3(*NOT H2*); assumption. simpl. intros. fwd.
         intuition. cbv [strongest_post]. intros. intersect_stuff. 1: congruence.
-        Search mid0. apply H4p1 in H10. apply H17 in H10. clear H17. apply H3 in H4p0. 
-        apply H
-        apply IHexecp1 in H10. apply H17 in H10. clear H17.
-        Search strongest_post.
-        assumption. inversion H5. subst. cbv [strongest_post]. intros. inversion H0.
-        subst. assumption.
-      - econstructor; eauto. cbv [strongest_post]. intros. inversion H3. subst.
-        rewrite H7 in H8.
+        Search mid0. apply H4p1 in H9. apply H16 in H9. clear H16. apply H4p3 in H9.
+        assumption.
+      - econstructor; eauto. simpl. intros. fwd. apply H3 in H4p0. fwd. eexists.
+        intuition eauto. eexists. intuition eauto. cbv [strongest_post]. intros.
+        intersect_stuff. Search mid0. apply H4p1 in H17. apply H18 in H17. clear H18.
+        fwd. rewrite H4p0p0 in H17p0. inversion H17p0. subst.
+        rewrite H4p0p1p0 in H17p1p0. inversion H17p1p0. subst. assumption.
+      - econstructor. 1,2: eauto.
+        { apply ext_spec.intersect. }
+        simpl. intros. pose proof H1 as H1'. apply H3 in H1.
+        apply H2 in H1. clear H2.
+        fwd. eexists. intuition eauto. cbv [strongest_post]. intros. intersect_stuff.
+        pose proof ext_spec.unique_mGive_footprint as Q.
+        specialize Q with (1 := H1') (2 := H15).
+        destruct (map.split_diff Q H H7). subst mKeep0 mGive0. clear H7.
+        apply H3 in H15. apply H16 in H15. fwd. apply H15p1 in H1.
+        Search l'0. Search l'. rewrite H1p0 in H15p0. inversion H15p0. subst.
+        assumption.
+    Qed.
         
     Lemma exec_iff_impl_by_strongest_post e s k t m l mc post :
       exec_nondet e s k t m l mc post <->
