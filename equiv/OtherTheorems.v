@@ -645,9 +645,22 @@ Section ShortTheorems.
         destruct (f (fn [])) eqn:E; try discriminate H3. destruct e; try discriminate H3.
         destruct fn_o as (Hbranch&_&_). specialize (Hbranch nil val ltac:(eexists; simpl; eassumption) ltac:(eexists; reflexivity)).
         destruct Hbranch as (?&Hbranch). simpl in Hbranch. rewrite Hbranch. f_equal.
-        subst. erewrite reasonable_ext.
+        subst. erewrite reasonable_ext in Hbranch.
         -- rewrite Hbranch. reflexivity.
-        -- 
+        -- apply f_reasonable.
+           ++ eexists. split; [exact Hk|]. constructor; [reflexivity|]. assumption.
+           ++ eexists. split; [exact Hk|]. constructor; [reflexivity|]. assumption.
+        -- apply f_reasonable.
+           ++ eexists. split; [exact Hk|]. constructor; [reflexivity|]. assumption.
+           ++ eexists. split; [exact Hk|]. constructor; [reflexivity|]. assumption.
+        -- apply f_reasonable.
+           ++ eexists. split; [exact Hk|]. constructor; [reflexivity|]. assumption.
+           ++ eexists. split; [exact Hk|]. constructor; [reflexivity|]. assumption.
+        -- intros. move Hcompat at bottom. simpl. destruct H as (?&H).
+           destruct k; [reflexivity|]. rewrite Hbranch in H. inversion H. subst.
+           reflexivity.
+      + 
+
         Search o. eauto.
         subst.
         simpl in IHHcompat.
