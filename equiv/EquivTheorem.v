@@ -7,7 +7,6 @@ Require Import coqutil.Tactics.fwd.
 Require Import coqutil.Map.Properties.
 Require Import bedrock2.Syntax coqutil.Map.Interface coqutil.Map.OfListWord.
 Require Import BinIntDef coqutil.Word.Interface coqutil.Word.Bitwidth.
-Require Import bedrock2.MetricLogging.
 Require Export bedrock2.Memory.
 Require Import Coq.Logic.ClassicalFacts.
 Require Import Coq.Classes.Morphisms.
@@ -31,21 +30,21 @@ Section WithEnv.
   Context (e: env).
 
   (*Theorem 3.3 of the paper*)
-  Lemma exec_det_equiv_nondet s k t m l mc fpost :
+  Lemma exec_det_equiv_nondet s k t m l fpost :
     excluded_middle ->
     FunctionalChoice_on (option sstate) (option sstate) ->
     ext_spec.ok ext_spec ->
     word.ok word ->
     map.ok mem ->
     (forall pick_sp,
-        exec_nondet e s k t m l mc (fun k' t' m' l' mc' =>
-                                      exists k'',
-                                        k' = k'' ++ k /\
-                                          (compat (fun k_ => pick_sp (rev k_ ++ k)) (List.rev k'') ->
-                                           fpost pick_sp k' t' m' l' mc')))
+        exec_nondet e s k t m l (fun k' t' m' l' =>
+                                   exists k'',
+                                     k' = k'' ++ k /\
+                                       (compat (fun k_ => pick_sp (rev k_ ++ k)) (List.rev k'') ->
+                                        fpost pick_sp k' t' m' l')))
     <->
       (forall pick_sp,
-          exec_det e pick_sp s k t m l mc (fpost pick_sp)).
+          exec_det e pick_sp s k t m l (fpost pick_sp)).
   Proof.
     intros em choice ext_spec_ok word_ok mem_ok. split.
     - intros H pick_sp. apply step_to_exec; try assumption. revert pick_sp.
