@@ -769,12 +769,93 @@ Module UseExec.
     Context {locals: map.map String.string word}.
     Context {env: map.map String.string (list String.string * list String.string * cmd)}.
     Context {ext_spec: ExtSpec}.
-
-    Axiom fun_reasonable : forall (f: (trace -> event) -> trace) (A B : trace -> event), Prop.
+    Context {word_ok: word.ok word} {mem_ok: map.ok mem} {ext_spec_ok: ext_spec.ok ext_spec}.
 
     Definition strongest_post e s k t m l mc k' t' m' l' mc' :=
-      exec_nondet e s k t m l mc (fun _ _ _ _ _ => True) /\
       forall P, exec_nondet e s k t m l mc P -> P k' t' m' l' mc'.
+
+    Ltac intersect_stuff :=
+      try match goal with
+      | H: exec_nondet _ _ _ _ _ _ _ _ |- _ => inversion H; subst; clear H
+      end;
+      repeat match goal with
+      | H1: ?e = Some (?x1, ?y1, ?z1), H2: ?e = Some (?x2, ?y2, ?z2) |- _ =>
+        replace x2 with x1 in * by congruence;
+          replace y2 with y1 in * by congruence;
+          replace z2 with z1 in * by congruence;
+          clear x2 y2 z2 H2
+      end;
+      repeat match goal with
+             | H1: ?e = Some ?v1, H2: ?e = Some ?v2 |- _ =>
+               replace v2 with v1 in * by congruence; clear H2
+             end;
+      repeat match goal with
+             | H1: ?e = Some ?v1, H2: ?e = Some ?v2 |- _ =>
+               replace v2 with v1 in * by congruence; clear H2
+             end.
+    
+    (*infinite intersection lemma*)
+    Lemma exec_to_strongest_post' e s k t m l mc post :
+      exec_nondet e s k t m l mc post ->
+      exec_nondet e s k t m l mc (fun k' t' m' l' mc' => post k' t' m' l' mc' /\ strongest_post e s k t m l mc k' t' m' l' mc').
+    Proof.
+      intros H. induction H; try solve [econstructor; eauto; intuition; [idtac]; cbv [strongest_post]; intros; intersect_stuff; auto].
+      - econstructor; eauto. intros. eapply weaken. 1: eapply H1; eauto.
+        simpl. intros. fwd. eexists. eexists. intuition eauto 10.
+        cbv [strongest_post]. intros. intersect_stuff.
+        specialize (H16 _ _ _ H2 H3 H4). apply H5p1 in H16. fwd.
+        lazymatch goal with
+      | A: map.split _ _ _, B: map.split _ _ _ |- _ =>
+        specialize @map.split_diff with (4 := A) (5 := B) as Q
+      end.
+      edestruct Q; try typeclasses eauto. 2: subst; eauto 10.
+      eapply anybytes_unique_domain; eassumption.
+      - eapply if_true; eauto. eapply weaken. 1: exact IHexec. simpl. intros.
+        fwd. intuition. cbv [strongest_post]. intros. intersect_stuff. 2: congruence.
+        apply H2p1 in H14. assumption.
+      - eapply if_false; eauto. eapply weaken. 1: exact IHexec. simpl. intros.
+        fwd. intuition. cbv [strongest_post]. intros. intersect_stuff. 1: congruence.
+        apply H2p1 in H14. assumption.
+      - econstructor; eauto. simpl. intros. fwd. eapply weaken. 1: apply H1; auto.
+        simpl. intros. fwd. intuition. cbv [strongest_post]. intros. intersect_stuff.
+        apply H2p1 in H5. apply H12 in H5. apply H2p3 in H5. assumption.
+      - eapply while_false; eauto. intuition. cbv [strongest_post]. intros. intersect_stuff.
+        2: congruence. assumption.
+      - eapply while_true; eauto. simpl. intros. fwd. eapply weaken; eauto. intros.
+        intuition. cbv [strongest_post]. intros. intersect_stuff. 1: congruence.
+        Search mid0. apply H4p1 in H10. apply H17 in H10. clear H17. apply H3 in H4p0. 
+        apply H
+        apply IHexecp1 in H10. apply H17 in H10. clear H17.
+        Search strongest_post.
+        assumption. inversion H5. subst. cbv [strongest_post]. intros. inversion H0.
+        subst. assumption.
+      - econstructor; eauto. cbv [strongest_post]. intros. inversion H3. subst.
+        rewrite H7 in H8.
+        
+    Lemma exec_iff_impl_by_strongest_post e s k t m l mc post :
+      exec_nondet e s k t m l mc post <->
+        (exec_nondet e s k t m l mc (fun _ _ _ _ _ => True) /\ forall k' t' m' l' mc', strongest_post e s k t m l mc k' t' m' l' mc' -> post k' t' m' l' mc').
+    Proof.
+      split.
+      - intros H. split.
+        + eapply weaken. 1: eassumption. auto.
+        + cbv [strongest_post]. intros * H'. apply H'. apply H.
+      - cbv [strongest_post]. intros (H1&H2).
+      
+    Lemma oracles_to_predictors e s k t m l mc f :
+      exec_nondet e s k t m l mc (fun k' t' m' l' mc' => exists k'',
+                                      k' = k'' ++ k /\
+                                        (forall A, compat A (rev k'') -> (rev k'') = f A)) ->
+      exists pred,
+        exec_nondet e s k t m l mc (fun k' t' m' l' mc' => exists k'',
+                                        k' = k'' ++ k /\
+                                          predicts pred (rev k'')).
+
+    Definition possible e s k t m l mc k' := exists t' m' l' mc', strongest_post e s k t m l mc k' t' m' l' mc'.
+
+    Check (@predictor_from_nowhere leakage word (word.of_Z 0)).
+
+    Axiom fun_reasonable : forall (f: (trace -> event) -> trace) (A B : trace -> event), Prop.
 
     Definition possible e s k t m l mc A :=
       exists k' t' m' l' mc', strongest_post e s k t m l mc k' t' m' l' mc' /\ compat A k'.
