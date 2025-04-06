@@ -506,15 +506,31 @@ Section ShortTheorems.
     erewrite H1; eauto.
   Qed.
 
+  Lemma reasonable_start o1 o2 f :
+    fun_reasonable' f o1 o1 ->
+    fun_reasonable' f o1 o2 ->
+    o1 [] = o2 [] ->
+    forall e k1,
+    f o1 = e :: k1 ->
+    exists k2, f o2 = e :: k2.
+  Proof.
+    intros H0 H1 H2 e k1 H3. destruct e.
+    - destruct H1 as (_&Hleak&_). specialize (Hleak nil val). simpl in Hleak.
+      specialize (Hleak ltac:(eexists; rewrite H3; reflexivity) ltac:(eexists; reflexivity)).
+      destruct Hleak as (?&Hleak). rewrite Hleak. eexists. reflexivity.
+    - destruct H1 as (Hbranch&_&_). specialize (Hbranch nil val). simpl in Hbranch.
+      specialize (Hbranch ltac:(eexists; rewrite H3; reflexivity) ltac:(eexists; reflexivity)).
+      destruct Hbranch as (?&Hbranch). rewrite Hbranch. rewrite <- H2.
+      destruct H0 as (Hbranch0&_&_). specialize (Hbranch0 nil val). simpl in Hbranch0.
+      specialize (Hbranch0 ltac:(eexists; rewrite H3; reflexivity) ltac:(eexists; reflexivity)).
+      destruct Hbranch0 as (?&Hbranch0). rewrite Hbranch0 in H3. inversion H3. subst.
+      eexists. reflexivity.
+  Qed.
+
   Lemma fun_reasonable_other (possible : _ -> Prop) f x :
-    (forall o1 o2, possible o1 ->
-              (forall k b1, prefix (k ++ [branch b1]) (f o1) -> o2 k = o1 k) ->
-              possible o2) ->
-    fun_reasonable possible f ->
+    fun_reasonable (fun o => exists k, possible k /\ compat o k) f ->
     fun_reasonable
-    (fun o0' : list event -> B =>
-     exists o1 : list event -> B,
-       possible o1 /\ (forall k0 : list event, o1 (branch x :: k0) = o0' k0))
+    (fun o' : list event -> B => exists k, possible (branch x :: k) /\ compat o' k)
     (fun o1 : list event -> B =>
      match
        f (fun k_ : list event => match k_ with
@@ -526,33 +542,51 @@ Section ShortTheorems.
      | _ :: k'_ => k'_
      end).
   Proof.
-    intros Hposs H. intros o0 o1 Ho0 Ho1. fwd.
-    pose proof (H o2 o3 ltac:(assumption) ltac:(assumption)) as Ho2o3.
-    split; [|split].
-    - intros. destruct Ho2o3 as (Ho2o3&_&_). specialize (Ho2o3 (branch x :: k) b1).
-      destruct H0 as (?&H0). destruct (f (fun k_ => _)) eqn:E0.
-      { destruct k; simpl in H0; discriminate H0. }
-      eassert (f o2 = e::l).
-      { rewrite <- E0. apply reasonable_ext.
-        - apply H; [assumption|]. apply (Hposs o2 _ ltac:(assumption)).
-          intros. destruct k0.
-          + destruct H2 as (?&H2). simpl in H2.
-            pose proof (H o2 o2 ltac:(assumption) ltac:(assumption)) as Ho2o2.
-            destruct Ho2o2 as (Hbranch&_&_). specialize (Hbranch nil b0).
-            edestruct Hbranch as (?&Hbranch').
-            -- eexists. rewrite H2. reflexivity.
-            -- eexists. reflexivity.
-            -- simpl in Hbranch'. rewrite H2 in Hbranch'. inversion Hbranch'. subst.
-               Search x.
-               
-          rewrite <- Ho0p1. 1,2,3: apply H. 3: apply H; assumption.
-        - eapply reasonable_more_ext.
-      replace (f o2) th (f _).
-      subst. 
-      destruct H1 as (?&H1). move E0 after H1. destruct (f (fun k_ => _)) eqn:E1.
-      { destruct 
-      
-
+    intros H. intros o1 o2 Ho1 Ho2. fwd.
+    set (o1' := (fun k_ => match k_ with | [] => x | _ :: k_' => o1 k_' end)).
+    set (o2' := (fun k_ => match k_ with | [] => x | _ :: k_' => o2 k_' end)).
+    pose proof (H o1' o2') as Ho1'o2'.
+    eassert _ as p1; [|eassert _ as p2; [|specialize (Ho1'o2' p1 p2)]].
+    { eexists. split; [exact Ho1p0|]. constructor; [reflexivity|]. simpl. assumption. }
+    { eexists. split; [exact Ho2p0|]. constructor; [reflexivity|]. simpl. assumption. }
+    pose proof (H o1' o1' ltac:(assumption) ltac:(assumption)) as Ho1'o1'.
+    pose proof (reasonable_start o1' o2' _ ltac:(eassumption) ltac:(eassumption) ltac:(reflexivity)) as Hstart.
+    split; [|split]. 
+    - fold o1'. fold o2'.
+      destruct Ho1'o2' as (Hbranch&_&_). intros k1 b1 H1 H2.
+      destruct H1 as (?&H1). destruct H2 as (?&H2).
+      destruct (f o1') eqn:Eo1.
+      { rewrite <- app_assoc in H1. apply app_cons_not_nil in H1. destruct H1. }
+      subst. specialize (Hstart _ _ eq_refl). fwd. rewrite Hstart in Hbranch.
+      edestruct Hbranch as (?&Hbranch').
+      { eexists. do 2 rewrite <- app_assoc. simpl.
+        match goal with | |- context[e :: ?x] => replace (e :: x) with ([e] ++ x) by reflexivity end.
+        rewrite (app_assoc [e]). reflexivity. }
+      { eexists. reflexivity. }
+      do 2 rewrite <- app_assoc in Hbranch'. inversion Hbranch'. clear Hbranch'.
+      Search (_ ++ _ = _ ++ _ -> _ = _). apply app_inv_head in H1. subst. eexists.
+      rewrite <- app_assoc. reflexivity.
+    - fold o1'. fold o2'.
+      destruct Ho1'o2' as (_&Hleak&_). intros k1 b1 H1 H2.
+      destruct H1 as (?&H1). destruct H2 as (?&H2).
+      destruct (f o1') eqn:Eo1.
+      { rewrite <- app_assoc in H1. apply app_cons_not_nil in H1. destruct H1. }
+      subst. specialize (Hstart _ _ eq_refl). fwd. rewrite Hstart in Hleak.
+      edestruct Hleak as (?&Hleak').
+      { eexists. do 2 rewrite <- app_assoc. simpl.
+        match goal with | |- context[e :: ?x] => replace (e :: x) with ([e] ++ x) by reflexivity end.
+        rewrite (app_assoc [e]). reflexivity. }
+      { eexists. reflexivity. }
+      do 2 rewrite <- app_assoc in Hleak'. inversion Hleak'. clear Hleak'.
+      apply app_inv_head in H1. subst. eexists.
+      rewrite <- app_assoc. reflexivity.
+    - fold o1'. fold o2'. destruct Ho1'o2' as (_&_&Hend). destruct (f o1').
+      { specialize (Hend ltac:(eexists; reflexivity)). rewrite <- Hend. reflexivity. }
+      specialize (Hstart _ _ eq_refl). fwd. intros (?&Hpre). subst.
+      rewrite Hstart in Hend. specialize (Hend ltac:(eexists; reflexivity)).
+      inversion Hend. do 2 rewrite <- H1. reflexivity.
+  Qed.
+  
   Lemma predictor_from_nowhere f (possible : _ -> Prop) o :
     possible o ->
     fun_reasonable possible f ->
