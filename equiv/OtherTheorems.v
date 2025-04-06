@@ -586,23 +586,74 @@ Section ShortTheorems.
       rewrite Hstart in Hend. specialize (Hend ltac:(eexists; reflexivity)).
       inversion Hend. do 2 rewrite <- H1. reflexivity.
   Qed.
+
+  (*all of this nonsense is just because we allow f to behave arbitrarily badly when
+    given a non-possible oracle as input.*)
+  Lemma extend_or_not {A : Type} (possible : _ -> Prop) :
+    exists f, forall (k : list A), (exists k', possible (k ++ k')) -> possible (k ++ f k).
+  Proof. Admitted.
+
+  Lemma predicts_ext f g k :
+    predicts f k ->
+    (forall k, f k = g k) ->
+    predicts g k.
+  Proof. Admitted.
   
-  Lemma predictor_from_nowhere f (possible : _ -> Prop) o :
-    possible o ->
-    fun_reasonable possible f ->
+  Lemma predictor_from_nowhere f (possible : _ -> Prop) :
+    fun_reasonable (fun o => exists k, possible k /\ compat o k) f ->
     exists pred,
     forall k,
-      predicts pred k <-> (forall A, possible A -> (compat A k -> k = f A)).
+      possible k ->
+      predicts pred k <-> (forall A, (compat A k -> k = f A)).
   Proof.
-    intros Ho f_reasonable. exists (predictor_of_fun o f). intros. split.
-    - intros Hpred A Hposs Hcompat.
-      revert possible Hposs o Ho f f_reasonable Hpred.
-      induction Hcompat; intros possible Hposs o0 Ho0 f f_reasonable Hpred.
+    intros f_reasonable.
+    destruct (extend_or_not possible) as (extend&Hextend).
+    remember (fun k => oracle_of_trace (k ++ extend k)) as fn.
+    assert (forall k, (exists k', possible (k ++ k')) -> (exists k', possible (k ++ k') /\ compat (fn k) (k ++ k'))) as Hfn.
+    { intros k H. specialize (Hextend k H). fwd. exists (extend k). intuition.
+      subst. apply oracle_of_trace_works. }
+    clear Hextend Heqfn extend.
+    exists (fun k => predictor_of_fun (fn k) f k).    
+    intros k Hk. split.
+    - intros Hpred A Hcompat.
+      revert possible Hk fn Hfn f f_reasonable Hpred.
+      induction Hcompat; intros possible Hk fn Hfn f f_reasonable Hpred.
       + inversion Hpred. clear Hpred. subst. cbv [predictor_of_fun] in H. simpl in H.
         destruct (f _) eqn:E; cycle 1. { destruct e; discriminate H. }
-        destruct (f_reasonable o0 o ltac:(assumption) ltac:(assumption)) as (_&_&f_end).
+        specialize (Hfn nil). specialize (Hfn ltac:(exists nil; assumption)).
+        simpl in Hfn.
+        eassert _ as k0_poss; [|eassert _ as k_poss; [|pose proof (f_reasonable (fn []) o k0_poss k_poss) as Hk0o]].
+        { apply Hfn. }
+        { exists nil. intuition. constructor. }
+        destruct Hk0o as (_&_&f_end).
         rewrite E in f_end. apply f_end. eexists. reflexivity.
-      + inversion Hpred. subst. clear Hpred. 
+      + inversion Hpred. subst. clear Hpred.
+        specialize (IHHcompat (fun k => possible (branch (o []) :: k))).
+        specialize IHHcompat with (4 := H4). simpl in IHHcompat.
+        specialize (IHHcompat ltac:(assumption)).
+        eassert _ as garbage. 2: specialize (IHHcompat garbage).
+        { intros. fwd. specialize (Hfn (branch (o []) :: k0) ltac:(eexists; eassumption)).
+          fwd. clear H. eexists. split; [eassumption|]. simpl in Hfnp1. inversion Hfnp1.
+          subst. apply H5. }
+        epose proof (IHHcompat (fun_reasonable_other _ _ _ ltac:(eassumption))) as IHHcompat.
+        clear garbage.
+        Search f. simpl in H3.
+        epose proof (f_reasonable (fn []) o _ _) as fn_o. Unshelve. all: cycle 1.
+        { simpl. specialize (Hfn nil ltac:(eexists; eassumption)). fwd. eauto. }
+        { simpl. exists (branch (o []) :: k). intuition. constructor; [reflexivity|].
+          assumption. }
+        destruct (f (fn [])) eqn:E; try discriminate H3. destruct e; try discriminate H3.
+        destruct fn_o as (Hbranch&_&_). specialize (Hbranch nil val ltac:(eexists; simpl; eassumption) ltac:(eexists; reflexivity)).
+        destruct Hbranch as (?&Hbranch). simpl in Hbranch. rewrite Hbranch. f_equal.
+        subst. erewrite reasonable_ext.
+        -- rewrite Hbranch. reflexivity.
+        -- 
+        Search o. eauto.
+        subst.
+        simpl in IHHcompat.
+        epose proof (IHHcompat _) as IHHcompat. Unshelve. all: cycle 1.
+        { eapply predicts_ext. 1: exact H4. simpl. intros.
+        specialize IHHcompat with (3 := H4).
         simpl in H3. destruct (f o0) eqn:E; [discriminate H3|].
         destruct e; try discriminate H3. clear H3.
         pose proof f_reasonable as f_reasonable'.
