@@ -747,7 +747,6 @@ Require Import coqutil.Tactics.fwd.
 Require Import coqutil.Map.Properties.
 Require Import bedrock2.Syntax coqutil.Map.Interface coqutil.Map.OfListWord.
 Require Import BinIntDef coqutil.Word.Interface coqutil.Word.Bitwidth.
-Require Import bedrock2.MetricLogging.
 Require Export bedrock2.Memory.
 Require Import Coq.Logic.ClassicalFacts.
 Require Import Coq.Classes.Morphisms.
@@ -761,7 +760,96 @@ Require Import Coq.Logic.ChoiceFacts.
 Require Import Coq.Lists.List.
 Require Import equiv.EquivDefinitions.
 
-Check exec_nondet.
+Section strongest_post.
+  Context {width: Z} {BW: Bitwidth width} {word: word.word width} {mem: map.map word byte}.
+  Context {locals: map.map String.string word}.
+  Context {env: map.map String.string (list String.string * list String.string * cmd)}.
+  Context {ext_spec: ExtSpec}.
+  Context (e: env).
+
+  Definition exactly (k': trace) (t' : io_trace) (m' : mem) (l' : locals) := fun k'0 t'0 m'0 l'0 => k'0 = k' /\ t'0 = t' /\ m'0 = m' /\ l'0 = l'.
+  
+  Inductive possible :
+    cmd -> trace -> io_trace -> mem -> locals  ->
+    trace -> io_trace -> mem -> locals -> Prop :=
+  | skip
+      k t m l
+    : possible cmd.skip k t m l k t m l
+  | set x e
+      m l
+      k t v k' (_ : eval_expr m l e k = Some (v, k'))
+    : possible (cmd.set x e) k t m l k' t m (map.put l x v)
+  | unset x
+      k t m l
+    : possible (cmd.unset x) k t m l k t m (map.remove l x)
+  | store sz ea ev
+      k t m l
+      a k' (_ : eval_expr m l ea k = Some (a, k'))
+      v k'' (_ : eval_expr m l ev k' = Some (v, k''))
+      m' (_ : Memory.store sz m a v = Some m')
+    : possible (cmd.store sz ea ev) k t m l (leak_word a :: k'') t m' l
+  | stackalloc x n body
+      k t mSmall l k' t' mSmall' l'
+      (_ : Z.modulo n (bytes_per_word width) = 0)
+      (_ : exists a mStack mCombined,
+          anybytes a n mStack /\
+            map.split mCombined mSmall mStack /\
+            exists mCombined',
+              possible body (Leakage.branch a :: k) t mCombined (map.put l x a)
+                k' t' mCombined' l' /\
+                exists mStack',
+                  anybytes a n mStack' /\
+                    map.split mCombined' mSmall' mStack')
+    : possible (cmd.stackalloc x n body) k t mSmall l k' t' mSmall' l'
+            
+  | if_true k t m l e c1 c2 k'' t' m' l'
+      v k' (_ : eval_expr m l e k = Some (v, k'))
+      (_ : word.unsigned v <> 0)
+      (_ : possible c1 (leak_bool true :: k') t m l k'' t' m' l')
+    : possible (cmd.cond e c1 c2) k t m l k'' t' m' l'
+  | if_false e c1 c2 k'' t' m' l'
+      k t m l
+      v k' (_ : eval_expr m l e k = Some (v, k'))
+      (_ : word.unsigned v = 0)
+      (_ : possible c2 (leak_bool false :: k') t m l k'' t' m' l')
+    : possible (cmd.cond e c1 c2) k t m l k'' t' m' l'
+  | seq c1 c2
+      k t m l k' t' m' l' k'' t'' m'' l''
+      (_ : possible c1 k t m l k' t' m' l')
+      (_ : possible c2 k' t' m' l' k'' t'' m'' l'')
+    : possible (cmd.seq c1 c2) k t m l k'' t'' m'' l''
+  | while_false e c
+      k t m l
+      v k' (_ : eval_expr m l e k = Some (v, k'))
+      (_ : word.unsigned v = 0)
+    : possible (cmd.while e c) k t m l (leak_bool false :: k') t m l
+  | while_true e c k'' t' m' l' k''' t'' m'' l''
+      k t m l
+      v k' (_ : eval_expr m l e k = Some (v, k'))
+      (_ : word.unsigned v <> 0)
+      (_ : possible c (leak_bool true :: k') t m l k'' t' m' l')
+      (_ : possible (cmd.while e c) k'' t' m' l' k''' t'' m'' l'')
+    : possible (cmd.while e c) k t m l k''' t'' m'' l''
+  | call binds fname arges k'' t' m' st1 l'
+      k t m l
+      params rets fbody (_ : map.get e fname = Some (params, rets, fbody))
+      args k' (_ : evaluate_call_args_log m l arges k = Some (args, k'))
+      lf (_ : map.of_list_zip params args = Some lf)
+      (_ : possible fbody (leak_unit :: k') t m lf k'' t' m' st1)
+      (_ : exists retvs, map.getmany_of_list st1 rets = Some retvs /\
+                      map.putmany_of_list_zip binds retvs l = Some l')
+    : possible (cmd.call binds fname arges) k t m l k'' t' m' l'
+  | interact binds action arges
+      k t m l l' m'
+      mKeep mGive (_: map.split m mKeep mGive)
+      args k' (_ :  evaluate_call_args_log m l arges k = Some (args, k'))
+      mReceive resvals klist
+      (_ : forall mid, ext_spec t mGive action args mid -> mid mReceive resvals klist)
+      (_ : map.putmany_of_list_zip binds resvals l = Some l' /\
+             map.split m' mKeep mReceive)
+    : possible (cmd.interact binds action arges) k t m l (leak_list klist :: k')%list (((mGive, action, args), (mReceive, resvals)) :: t) m' l'
+  .
+End strongest_post.
 
 Module UseExec.
   Section UseExec.
@@ -866,8 +954,6 @@ Module UseExec.
     Import List.ListNotations.
 
     Definition possible_trace e s k t m l mc k' := exists t' m' l' mc', strongest_post e s k t m l mc k' t' m' l' mc'.
-
-    Definition exactly (k': trace) (t' : io_trace) (m' : mem) (l' : locals) (mc' : MetricLog) := fun k'0 t'0 m'0 l'0 mc'0 => k'0 = k' /\ t'0 = t' /\ m'0 = m' /\ l'0 = l' /\ mc'0 = mc'.
 
     Lemma id_is_nil {A : Type} (l1 l2 : list A) :
       l1 ++ l2 = l2 -> l1 = nil.
