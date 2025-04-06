@@ -530,11 +530,14 @@ Section ShortTheorems.
   Lemma fun_reasonable_other (possible : _ -> Prop) f x :
     fun_reasonable (fun o => exists k, possible k /\ compat o k) f ->
     fun_reasonable
-    (fun o' : list event -> B => exists k, possible (branch x :: k) /\ compat o' k)
+    (fun o' : list event -> B => exists k, possible (x :: k) /\ compat o' k)
     (fun o1 : list event -> B =>
      match
        f (fun k_ : list event => match k_ with
-                                 | [] => x
+                              | [] => match x with
+                                     | branch b => b
+                                     | _ => B_inhabited
+                                     end
                                  | _ :: k_' => o1 k_'
                                  end)
      with
@@ -543,12 +546,22 @@ Section ShortTheorems.
      end).
   Proof.
     intros H. intros o1 o2 Ho1 Ho2. fwd.
-    set (o1' := (fun k_ => match k_ with | [] => x | _ :: k_' => o1 k_' end)).
-    set (o2' := (fun k_ => match k_ with | [] => x | _ :: k_' => o2 k_' end)).
+    set (o1' := (fun k_ => match k_ with | [] => match x with
+                                     | branch b => b
+                                     | _ => B_inhabited
+                                     end | _ :: k_' => o1 k_' end)).
+    set (o2' := (fun k_ => match k_ with | [] => match x with
+                                     | branch b => b
+                                     | _ => B_inhabited
+                                     end | _ :: k_' => o2 k_' end)).
     pose proof (H o1' o2') as Ho1'o2'.
     eassert _ as p1; [|eassert _ as p2; [|specialize (Ho1'o2' p1 p2)]].
-    { eexists. split; [exact Ho1p0|]. constructor; [reflexivity|]. simpl. assumption. }
-    { eexists. split; [exact Ho2p0|]. constructor; [reflexivity|]. simpl. assumption. }
+    { eexists. split; [exact Ho1p0|]. destruct x.
+      - constructor. assumption.
+      - constructor; [reflexivity|]. simpl. assumption. }
+    { eexists. split; [exact Ho2p0|]. destruct x.
+      - constructor. assumption.
+      - constructor; [reflexivity|]. simpl. assumption. }
     pose proof (H o1' o1' ltac:(assumption) ltac:(assumption)) as Ho1'o1'.
     pose proof (reasonable_start o1' o2' _ ltac:(eassumption) ltac:(eassumption) ltac:(reflexivity)) as Hstart.
     split; [|split]. 
@@ -659,7 +672,83 @@ Section ShortTheorems.
         -- intros. move Hcompat at bottom. simpl. destruct H as (?&H).
            destruct k; [reflexivity|]. rewrite Hbranch in H. inversion H. subst.
            reflexivity.
-      + 
+     + inversion Hpred. subst. clear Hpred.
+        specialize (IHHcompat (fun k => possible (leak l :: k))).
+        specialize IHHcompat with (4 := H3). simpl in IHHcompat.
+        specialize (IHHcompat ltac:(assumption)).
+        eassert _ as garbage. 2: specialize (IHHcompat garbage).
+        { intros. fwd. specialize (Hfn (leak l :: k0) ltac:(eexists; eassumption)).
+          fwd. clear H. eexists. split; [eassumption|]. simpl in Hfnp1. inversion Hfnp1.
+          subst. apply H1. }
+        epose proof (IHHcompat (fun_reasonable_other _ _ _ ltac:(eassumption))) as IHHcompat.
+        clear garbage.
+        Search f. simpl in H2.
+        epose proof (f_reasonable (fn []) o _ _) as fn_o. Unshelve. all: cycle 1.
+        { simpl. specialize (Hfn nil ltac:(eexists; eassumption)). fwd. eauto. }
+        { simpl. exists (leak l :: k). intuition. constructor.
+          assumption. }
+        destruct (f (fn [])) eqn:E; try discriminate H2. destruct e; try discriminate H2.
+        inversion H2. subst. clear H2.
+        destruct fn_o as (_&Hleak&_). specialize (Hleak nil l ltac:(eexists; simpl; eassumption) ltac:(eexists; reflexivity)).
+        destruct Hleak as (?&Hleak). simpl in Hleak. rewrite Hleak. f_equal.
+        subst. erewrite reasonable_ext in Hleak.
+        -- rewrite Hleak. reflexivity.
+        -- apply f_reasonable.
+           ++ eexists. split; [exact Hk|]. constructor. assumption.
+           ++ eexists. split; [exact Hk|]. constructor. assumption.
+        -- apply f_reasonable.
+           ++ eexists. split; [exact Hk|]. constructor. assumption.
+           ++ eexists. split; [exact Hk|]. constructor. assumption.
+        -- apply f_reasonable.
+           ++ eexists. split; [exact Hk|]. constructor. assumption.
+           ++ eexists. split; [exact Hk|]. constructor. assumption.
+        -- intros. move Hcompat at bottom. simpl. destruct H as (?&H).
+           destruct k.
+           { simpl in H. rewrite Hleak in H. inversion H. }
+           rewrite Hleak in H. inversion H. subst. reflexivity.
+    - 
+    
+      + inversion Hpred. clear Hpred. subst. cbv [predictor_of_fun] in H. simpl in H.
+        destruct (f _) eqn:E; cycle 1. { destruct e; discriminate H. }
+        specialize (Hfn nil). specialize (Hfn ltac:(exists nil; assumption)).
+        simpl in Hfn.
+        eassert _ as k0_poss; [|eassert _ as k_poss; [|pose proof (f_reasonable (fn []) o k0_poss k_poss) as Hk0o]].
+        { apply Hfn. }
+        { exists nil. intuition. constructor. }
+        destruct Hk0o as (_&_&f_end).
+        rewrite E in f_end. apply f_end. eexists. reflexivity.
+      + inversion Hpred. subst. clear Hpred.
+        specialize (IHHcompat (fun k => possible (branch (o []) :: k))).
+        specialize IHHcompat with (4 := H4). simpl in IHHcompat.
+        specialize (IHHcompat ltac:(assumption)).
+        eassert _ as garbage. 2: specialize (IHHcompat garbage).
+        { intros. fwd. specialize (Hfn (branch (o []) :: k0) ltac:(eexists; eassumption)).
+          fwd. clear H. eexists. split; [eassumption|]. simpl in Hfnp1. inversion Hfnp1.
+          subst. apply H5. }
+        epose proof (IHHcompat (fun_reasonable_other _ _ _ ltac:(eassumption))) as IHHcompat.
+        clear garbage.
+        Search f. simpl in H3.
+        epose proof (f_reasonable (fn []) o _ _) as fn_o. Unshelve. all: cycle 1.
+        { simpl. specialize (Hfn nil ltac:(eexists; eassumption)). fwd. eauto. }
+        { simpl. exists (branch (o []) :: k). intuition. constructor; [reflexivity|].
+          assumption. }
+        destruct (f (fn [])) eqn:E; try discriminate H3. destruct e; try discriminate H3.
+        destruct fn_o as (Hbranch&_&_). specialize (Hbranch nil val ltac:(eexists; simpl; eassumption) ltac:(eexists; reflexivity)).
+        destruct Hbranch as (?&Hbranch). simpl in Hbranch. rewrite Hbranch. f_equal.
+        subst. erewrite reasonable_ext in Hbranch.
+        -- rewrite Hbranch. reflexivity.
+        -- apply f_reasonable.
+           ++ eexists. split; [exact Hk|]. constructor; [reflexivity|]. assumption.
+           ++ eexists. split; [exact Hk|]. constructor; [reflexivity|]. assumption.
+        -- apply f_reasonable.
+           ++ eexists. split; [exact Hk|]. constructor; [reflexivity|]. assumption.
+           ++ eexists. split; [exact Hk|]. constructor; [reflexivity|]. assumption.
+        -- apply f_reasonable.
+           ++ eexists. split; [exact Hk|]. constructor; [reflexivity|]. assumption.
+           ++ eexists. split; [exact Hk|]. constructor; [reflexivity|]. assumption.
+        -- intros. move Hcompat at bottom. simpl. destruct H as (?&H).
+           destruct k; [reflexivity|]. rewrite Hbranch in H. inversion H. subst.
+           reflexivity.
 
         Search o. eauto.
         subst.
