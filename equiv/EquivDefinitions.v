@@ -7,7 +7,6 @@ Require Import coqutil.Tactics.fwd.
 Require Import coqutil.Map.Properties.
 Require Import bedrock2.Syntax coqutil.Map.Interface coqutil.Map.OfListWord.
 Require Import BinIntDef coqutil.Word.Interface coqutil.Word.Bitwidth.
-Require Import bedrock2.MetricLogging.
 Require Export bedrock2.Memory.
 Require Import Coq.Logic.ClassicalFacts.
 Require Import Coq.Classes.Morphisms.
@@ -184,59 +183,51 @@ Section exprs.
   Context {locals: map.map String.string word}.
   Context {env: map.map String.string (list String.string * list String.string * cmd)}.
 
-  Local Notation metrics := MetricLog.
-
   Section WithMemAndLocals.
     Context (m : mem) (l : locals).
 
     Local Notation "' x <- a | y ; f" := (match a with x => f | _ => y end)
                                            (right associativity, at level 70, x pattern).
-    Fixpoint eval_expr (e : expr) (mc : metrics) (tr : trace) : option (word * metrics * trace) :=
+    Fixpoint eval_expr (e : expr) (tr : trace) : option (word * trace) :=
       match e with
       | expr.literal v => Some (
                              word.of_Z v,
-                             addMetricInstructions 8 (addMetricLoads 8 mc),
                              tr)
       | expr.var x => match map.get l x with
                      | Some v => Some (
                                     v,
-                                    addMetricInstructions 1 (addMetricLoads 2 mc),
                                     tr)
                      | None => None
                      end
       | expr.inlinetable aSize t index =>
-          'Some (index', mc', tr') <- eval_expr index mc tr | None;
+          'Some (index', tr') <- eval_expr index tr | None;
           'Some v <- load aSize (map.of_list_word t) index' | None;
           Some (v,
-              (addMetricInstructions 3 (addMetricLoads 4 (addMetricJumps 1 mc'))),
               leak_word index' :: tr')
       | expr.load aSize a =>
-          'Some (a', mc', tr') <- eval_expr a mc tr | None;
+          'Some (a', tr') <- eval_expr a tr | None;
           'Some v <- load aSize m a' | None;
           Some (v,
-              addMetricInstructions 1 (addMetricLoads 2 mc'),
               leak_word a' :: tr')
       | expr.op op e1 e2 =>
-          'Some (v1, mc', tr') <- eval_expr e1 mc tr | None;
-          'Some (v2, mc'', tr'') <- eval_expr e2 mc' tr' | None;
+          'Some (v1, tr') <- eval_expr e1 tr | None;
+          'Some (v2, tr'') <- eval_expr e2 tr' | None;
           Some (interp_binop op v1 v2,
-              addMetricInstructions 2 (addMetricLoads 2 mc''),
               leak_binop op v1 v2 ++ tr'')
       | expr.ite c e1 e2 =>
-          'Some (vc, mc', tr') <- eval_expr c mc tr | None;
+          'Some (vc, tr') <- eval_expr c tr | None;
           eval_expr
             (if word.eqb vc (word.of_Z 0) then e2 else e1)
-            (addMetricInstructions 2 (addMetricLoads 2 (addMetricJumps 1 mc')))
             ((if word.eqb vc (word.of_Z 0) then leak_bool false else leak_bool true) :: tr')
       end.
 
-    Fixpoint evaluate_call_args_log (arges : list expr) (mc : metrics) (tr : trace) :=
+    Fixpoint evaluate_call_args_log (arges : list expr) (tr : trace) :=
       match arges with
       | e :: tl =>
-          'Some (v, mc', tr') <- eval_expr e mc tr | None;
-          'Some (args, mc'', tr'') <- evaluate_call_args_log tl mc' tr' | None;
-          Some (v :: args, mc'', tr'')
-      | _ => Some (nil, mc, tr)
+          'Some (v, tr') <- eval_expr e tr | None;
+          'Some (args, tr'') <- evaluate_call_args_log tl tr' | None;
+          Some (v :: args, tr'')
+      | _ => Some (nil, tr)
       end.
   End WithMemAndLocals.
 End exprs.
@@ -247,112 +238,101 @@ Section stmts.
   Context {env: map.map String.string (list String.string * list String.string * cmd)}.
   Context {ext_spec: ExtSpec}.
   Context (e: env).
-  Local Notation metrics := MetricLog.
-
-  Implicit Types post : trace -> io_trace -> mem -> locals -> metrics -> Prop.
+  
+  Implicit Types post : trace -> io_trace -> mem -> locals -> Prop.
   
   Section WithDet.
     Context (salloc_det : bool).
     Context {pick_sp : PickSp}.
 
     Inductive exec :
-      cmd -> trace -> io_trace -> mem -> locals -> metrics ->
-      (trace -> io_trace -> mem -> locals -> metrics -> Prop) -> Prop :=
+      cmd -> trace -> io_trace -> mem -> locals  ->
+      (trace -> io_trace -> mem -> locals -> Prop) -> Prop :=
     | skip
-        k t m l mc post
-        (_ : post k t m l mc)
-      : exec cmd.skip k t m l mc post
+        k t m l post
+        (_ : post k t m l)
+      : exec cmd.skip k t m l post
     | set x e
-        m l mc post
-        k t v mc' k' (_ : eval_expr m l e mc k = Some (v, mc', k'))
-        (_ : post k' t m (map.put l x v) (addMetricInstructions 1
-                                            (addMetricLoads 1 mc')))
-      : exec (cmd.set x e) k t m l mc post
+        m l post
+        k t v k' (_ : eval_expr m l e k = Some (v, k'))
+        (_ : post k' t m (map.put l x v))
+      : exec (cmd.set x e) k t m l post
     | unset x
-        k t m l mc post
-        (_ : post k t m (map.remove l x) mc)
-      : exec (cmd.unset x) k t m l mc post
+        k t m l post
+        (_ : post k t m (map.remove l x))
+      : exec (cmd.unset x) k t m l post
     | store sz ea ev
-        k t m l mc post
-        a mc' k' (_ : eval_expr m l ea mc k = Some (a, mc', k'))
-        v mc'' k'' (_ : eval_expr m l ev mc' k' = Some (v, mc'', k''))
+        k t m l post
+        a k' (_ : eval_expr m l ea k = Some (a, k'))
+        v k'' (_ : eval_expr m l ev k' = Some (v, k''))
         m' (_ : store sz m a v = Some m')
-        (_ : post (leak_word a :: k'') t m' l (addMetricInstructions 1
-                                                (addMetricLoads 1
-                                                   (addMetricStores 1 mc''))))
-      : exec (cmd.store sz ea ev) k t m l mc post
+        (_ : post (leak_word a :: k'') t m' l)
+      : exec (cmd.store sz ea ev) k t m l post
     | stackalloc x n body
-        k t mSmall l mc post
+        k t mSmall l post
         (_ : Z.modulo n (bytes_per_word width) = 0)
         (_ : forall a mStack mCombined,
             (salloc_det = true -> a = pick_sp k) ->
             anybytes a n mStack ->
             map.split mCombined mSmall mStack ->
-            exec body (Leakage.branch a :: k) t mCombined (map.put l x a) (addMetricInstructions 1 (addMetricLoads 1 mc))
-              (fun k' t' mCombined' l' mc' =>
+            exec body (Leakage.branch a :: k) t mCombined (map.put l x a)
+              (fun k' t' mCombined' l' =>
                  exists mSmall' mStack',
                    anybytes a n mStack' /\
                      map.split mCombined' mSmall' mStack' /\
-                     post k' t' mSmall' l' mc'))
-      : exec (cmd.stackalloc x n body) k t mSmall l mc post
-    | if_true k t m l mc e c1 c2 post
-        v mc' k' (_ : eval_expr m l e mc k = Some (v, mc', k'))
+                     post k' t' mSmall' l'))
+      : exec (cmd.stackalloc x n body) k t mSmall l post
+    | if_true k t m l e c1 c2 post
+        v k' (_ : eval_expr m l e k = Some (v, k'))
         (_ : word.unsigned v <> 0)
-        (_ : exec c1 (leak_bool true :: k') t m l (addMetricInstructions 2 (addMetricLoads 2 (addMetricJumps 1 mc'))) post)
-      : exec (cmd.cond e c1 c2) k t m l mc post
+        (_ : exec c1 (leak_bool true :: k') t m l post)
+      : exec (cmd.cond e c1 c2) k t m l post
     | if_false e c1 c2
-        k t m l mc post
-        v mc' k' (_ : eval_expr m l e mc k = Some (v, mc', k'))
+        k t m l post
+        v k' (_ : eval_expr m l e k = Some (v, k'))
         (_ : word.unsigned v = 0)
-        (_ : exec c2 (leak_bool false :: k') t m l (addMetricInstructions 2 (addMetricLoads 2 (addMetricJumps 1 mc'))) post)
-      : exec (cmd.cond e c1 c2) k t m l mc post
+        (_ : exec c2 (leak_bool false :: k') t m l post)
+      : exec (cmd.cond e c1 c2) k t m l post
     | seq c1 c2
-        k t m l mc post
-        mid (_ : exec c1 k t m l mc mid)
-        (_ : forall k' t' m' l' mc', mid k' t' m' l' mc' -> exec c2 k' t' m' l' mc' post)
-      : exec (cmd.seq c1 c2) k t m l mc post
+        k t m l post
+        mid (_ : exec c1 k t m l mid)
+        (_ : forall k' t' m' l', mid k' t' m' l' -> exec c2 k' t' m' l' post)
+      : exec (cmd.seq c1 c2) k t m l post
     | while_false e c
-        k t m l mc post
-        v mc' k' (_ : eval_expr m l e mc k = Some (v, mc', k'))
+        k t m l post
+        v k' (_ : eval_expr m l e k = Some (v, k'))
         (_ : word.unsigned v = 0)
-        (_ : post (leak_bool false :: k') t m l (addMetricInstructions 1
-                                                  (addMetricLoads 1
-                                                     (addMetricJumps 1 mc'))))
-      : exec (cmd.while e c) k t m l mc post
+        (_ : post (leak_bool false :: k') t m l)
+      : exec (cmd.while e c) k t m l post
     | while_true e c
-        k t m l mc post
-        v mc' k' (_ : eval_expr m l e mc k = Some (v, mc', k'))
+        k t m l post
+        v k' (_ : eval_expr m l e k = Some (v, k'))
         (_ : word.unsigned v <> 0)
-        mid (_ : exec c (leak_bool true :: k') t m l mc' mid)
-        (_ : forall k'' t' m' l' mc'', mid k'' t' m' l' mc'' ->
-                                  exec (cmd.while e c) k'' t' m' l' (addMetricInstructions 2
-                                                                       (addMetricLoads 2
-                                                                          (addMetricJumps 1 mc''))) post)
-      : exec (cmd.while e c) k t m l mc post
+        mid (_ : exec c (leak_bool true :: k') t m l mid)
+        (_ : forall k'' t' m' l', mid k'' t' m' l' ->
+                                  exec (cmd.while e c) k'' t' m' l' post)
+      : exec (cmd.while e c) k t m l post
     | call binds fname arges
-        k t m l mc post
+        k t m l post
         params rets fbody (_ : map.get e fname = Some (params, rets, fbody))
-        args mc' k' (_ : evaluate_call_args_log m l arges mc k = Some (args, mc', k'))
+        args k' (_ : evaluate_call_args_log m l arges k = Some (args, k'))
         lf (_ : map.of_list_zip params args = Some lf)
-        mid (_ : exec fbody (leak_unit :: k') t m lf (addMetricInstructions 100 (addMetricJumps 100 (addMetricLoads 100 (addMetricStores 100 mc')))) mid)
-        (_ : forall k'' t' m' st1 mc'', mid k'' t' m' st1 mc'' ->
+        mid (_ : exec fbody (leak_unit :: k') t m lf mid)
+        (_ : forall k'' t' m' st1, mid k'' t' m' st1 ->
                                    exists retvs, map.getmany_of_list st1 rets = Some retvs /\
                                               exists l', map.putmany_of_list_zip binds retvs l = Some l' /\
-                                                      post k'' t' m' l' (addMetricInstructions 100 (addMetricJumps 100 (addMetricLoads 100 (addMetricStores 100 mc'')))))
-      : exec (cmd.call binds fname arges) k t m l mc post
+                                                      post k'' t' m' l')
+      : exec (cmd.call binds fname arges) k t m l post
     | interact binds action arges
-        k t m l mc post
+        k t m l post
         mKeep mGive (_: map.split m mKeep mGive)
-        args mc' k' (_ :  evaluate_call_args_log m l arges mc k = Some (args, mc', k'))
+        args k' (_ :  evaluate_call_args_log m l arges k = Some (args, k'))
         mid (_ : ext_spec t mGive action args mid)
         (_ : forall mReceive resvals klist, mid mReceive resvals klist ->
                                        exists l', map.putmany_of_list_zip binds resvals l = Some l' /\
                                                forall m', map.split m' mKeep mReceive ->
-                                                     post (leak_list klist :: k')%list (((mGive, action, args), (mReceive, resvals)) :: t) m' l'
-                                                       (addMetricInstructions 1
-                                                          (addMetricStores 1
-                                                             (addMetricLoads 2 mc'))))
-      : exec (cmd.interact binds action arges) k t m l mc post
+                                                     post (leak_list klist :: k')%list (((mGive, action, args), (mReceive, resvals)) :: t) m' l')
+      : exec (cmd.interact binds action arges) k t m l post
     .
   End WithDet.
 
