@@ -605,6 +605,124 @@ Section ShortTheorems.
   Lemma extend_or_not {A : Type} (possible : _ -> Prop) :
     exists f, forall (k : list A), (exists k', possible (k ++ k')) -> possible (k ++ f k).
   Proof. Admitted.
+
+  Lemma fold_app : (fix app (l m : list Leakage.event) {struct l} : list Leakage.event :=
+        match l with
+        | nil => m
+        | a :: l1 => a :: app l1 m
+        end) = @List.app event.
+  Proof. reflexivity. Qed.
+  
+  Lemma compat_app k1 k2 f :
+    compat f k1 ->
+    compat (fun k => f (k1 ++ k)) k2 ->
+    compat f (k1 ++ k2).
+  Proof.
+    revert k2. revert f. induction k1; [intros; assumption|]. intros. destruct a.    
+    - constructor. rewrite fold_app. apply IHk1; auto. inversion H. assumption.
+    - inversion H. subst. clear H. constructor; auto.
+  Qed.
+
+  Lemma compat_app_inv k1 k2 f :
+    compat f (k1 ++ k2) ->
+    compat f k1 /\ compat (fun k => f (k1 ++ k)) k2.
+  Proof.
+    intros H. revert f H. induction k1.
+    - intros f H. split; [constructor|assumption].
+    - intros f H. inversion H; subst; clear H.
+      + apply IHk1 in H4. fwd. split; try constructor; auto.
+      + apply IHk1 in H2. fwd. split; try constructor; auto.
+  Qed.
+
+  Lemma compat_ext' f g k:
+      (forall k', f k' = g k') ->
+      compat f k ->
+      compat g k.
+    Proof.
+      intros H1 H2. revert H1. revert g. induction H2.
+      - intros. constructor.
+      - intros. constructor.
+        + rewrite <- H1. apply H.
+        + apply IHcompat. intros. apply H1.
+      - intros. constructor. apply IHcompat. auto.
+    Qed.
+
+  Lemma f_reasonable f (possible : _ -> Prop) :
+    excluded_middle (*we only use this to say that eq of L, B is decidable*) ->
+    FunctionalChoice_on (list event) B ->
+    (forall k, possible k -> (forall A, (compat A k -> k = f A))) ->
+    fun_reasonable (fun o => exists k, possible k /\ compat o k) f.
+  Proof.
+    intros em choice H. intros o1 o2 (k1&poss1&compat1) (k2&poss2&compat2).
+    pose proof (H _ poss1 _ compat1) as H1. pose proof (H _ poss2 _ compat2) as H2.
+    subst. split; [|split].
+    - intros. set (R := fun k ok => (prefix k (f o1) /\ ok = o1 k) \/
+                                   (~prefix k (f o1) /\ ok = o2 k)).
+      epose proof (choice R _) as choice. subst R. Unshelve. all: cycle 1.
+      { intros. subst R. simpl. pose proof (em (prefix x (f o1))) as prefix_or_not.
+        destruct prefix_or_not; eauto. }
+      destruct choice as (o&Ho).
+      assert (compat o (f o1)) as compat1o.
+      { apply compat'_iff_compat. apply compat'_iff_compat in compat1.
+        clear -compat1 Ho. intros k1 b k2 H. rewrite H in compat1.
+        cbv [compat'] in compat1. specialize (compat1 _ _ _ eq_refl).
+        specialize (Ho k1). destruct Ho.
+        - destruct H0 as (_&H0). rewrite H0, compat1. reflexivity.
+        - destruct H0 as (H0&_). exfalso. apply H0. eexists. eassumption. }
+      pose proof (H (f o1) ltac:(assumption) o compat1o) as half1.
+      match goal with | |- ?P => pose proof (em P) as HP; destruct HP; [assumption|exfalso] end.
+      assert (forall b, ~prefix (k ++ [branch b]) (f o2)).
+      { intros b Hb. apply compat'_iff_compat in compat2.
+        destruct Hb as (k'&Hb). rewrite <- app_assoc in Hb. rewrite Hb in compat2.
+        specialize (compat2 _ _ _ eq_refl). rewrite Hb in H2. rewrite compat2 in H2.
+        apply H2. exists k'. rewrite <- app_assoc. reflexivity. }
+      enough (f o2 = f o).
+      { clear H2. apply (H3 b1). clear H3. rewrite H4, <- half1. apply H0. }
+      apply H; [assumption|]. destruct H0 as (?&H0). destruct H1 as (?&H1).
+      rewrite H1 in *. rewrite <- app_assoc in H0. rewrite H0 in *.
+      apply compat_app_inv in compat1o. destruct compat1o.
+      apply compat_app; [assumption|]. apply compat_app_inv in compat2.
+      destruct compat2 as (?&compat2). destruct x0.
+      { constructor. }
+      destruct e.
+      + constructor. inversion compat2. subst. eapply compat_ext'. 2: exact H9.
+        simpl. intros. specialize (Ho (k ++ leak val :: k')). destruct Ho as [Ho|Ho].
+        -- destruct Ho as (Ho&_). destruct Ho as (?&Ho). rewrite <- app_assoc in Ho.
+           apply app_inv_head in Ho. simpl in Ho. inversion Ho.
+        -- destruct Ho as (_&Ho). symmetry. exact Ho.
+      + exfalso. apply (H3 val). exists x0. rewrite <- app_assoc. reflexivity.
+    - intros. set (R := fun k ok => (prefix k (f o2) /\ ok = o2 k) \/
+                                   (~prefix k (f o2) /\ ok = o1 k)).
+      epose proof (choice R _) as choice. subst R. Unshelve. all: cycle 1.
+      { intros. subst R. simpl. pose proof (em (prefix x0 (f o2))) as prefix_or_not.
+        destruct prefix_or_not; eauto. }
+      destruct choice as (o&Ho).
+      assert (compat o (f o2)) as compat2o.
+      { apply compat'_iff_compat. apply compat'_iff_compat in compat2.
+        clear -compat2 Ho. intros k1 b k2 H. rewrite H in compat2.
+        cbv [compat'] in compat2. specialize (compat2 _ _ _ eq_refl).
+        specialize (Ho k1). destruct Ho.
+        - destruct H0 as (_&H0). rewrite H0, compat2. reflexivity.
+        - destruct H0 as (H0&_). exfalso. apply H0. eexists. eassumption. }
+      pose proof (H (f o2) ltac:(assumption) o compat2o) as half1.
+      match goal with | |- ?P => pose proof (em P) as HP; destruct HP; [assumption|exfalso] end.
+      enough (f o1 = f o).
+      { apply H2. rewrite half1, <- H3. exact H0. }
+      apply H; [assumption|]. destruct H0 as (?&H0). destruct H1 as (?&H1).
+      rewrite H0 in *. rewrite <- app_assoc in H0. rewrite H1 in *.
+      apply compat_app_inv in compat2o. destruct compat2o. rewrite <- app_assoc.
+      apply compat_app; [assumption|]. constructor.
+      rewrite <- app_assoc in compat1. apply compat_app_inv in compat1.
+      destruct compat1 as (?&compat1). inversion compat1. subst.
+      eapply compat_ext'. 2: exact H8. simpl. intros.
+      specialize (Ho (k ++ leak x :: k')). destruct Ho as [Ho|Ho].
+      + destruct Ho as (Ho&_). exfalso. apply H2. destruct Ho as (?&Ho). rewrite Ho.
+        rewrite <- app_assoc. exists (k' ++ x2). repeat rewrite <- app_assoc. reflexivity.
+      + destruct Ho as (_&Ho). symmetry. exact Ho.
+    - intros pre. destruct pre as (?&pre). rewrite pre in *.
+      apply compat_app_inv in compat2. destruct compat2 as (compat2&_).
+      rewrite <- pre. apply H; assumption.
+  Qed.
   
   Lemma predictor_from_nowhere f (possible : _ -> Prop) :
     fun_reasonable (fun o => exists k, possible k /\ compat o k) f ->
@@ -753,6 +871,64 @@ Require Import Coq.Logic.ChoiceFacts.
 
 Require Import Coq.Lists.List.
 Require Import equiv.EquivDefinitions.
+
+Section predictors_of_oracles.
+  Context {width: Z} {BW: Bitwidth width} {word: word.word width} {mem: map.map word byte}.
+  Context {locals: map.map String.string word}.
+  Context {env: map.map String.string (list String.string * list String.string * cmd)}.
+  Context {ext_spec: ExtSpec}.
+  Context (e : env).
+  Check possible_execution_nondet.
+  Let possible_execution := possible_execution_nondet e (pick_sp := (fun _ => word.of_Z 0)).
+  
+  Check possible_execution.
+
+  Print satisfies. Print state_satisfies.
+
+  Definition ends_with (f : nat -> option sstate) k' t' m' l' :=
+    exists n, f n = Some (sskip, k', t', m', l').
+
+  Definition starts_with (f : nat -> option sstate) s k t m l :=
+    f O = Some (s, k, t, m, l).
+
+  Lemma event_happens_sometime f s k t m l k1 evt k2 t' m' l' :
+    possible_execution f ->
+    starts_with f s k t m l ->
+    ends_with f (k1 ++ evt :: k2 ++ k) t' m' l' ->
+    exists n s0 t0 m0 l0 s0' t0' m0' l0',
+      f n = Some (s0, k2 ++ k, t0, m0, l0) /\
+        f (S n) = Some (s0', evt :: k2 ++ k, t0', m0', l0').
+  Proof. Admitted.
+    
+  Lemma reasonable s k t m l g :
+    (forall k' t' m' l' f,
+        possible_execution f ->
+        starts_with f s k t m l ->
+        ends_with f k' t' m' l' ->
+        exists k'',
+          k' = k'' ++ k /\
+            (forall A, compat A (rev k'') -> (rev k'') = g A)) ->
+    let possible_k' := (fun k' => exists f t' m' l',
+                            possible_execution f /\
+                              starts_with f s k t m l /\
+                              ends_with f (rev k' ++ k) t' m' l') in
+    fun_reasonable (fun o => exists k, possible_k' k /\ compat o k) g.
+  Proof.
+    intros H possible_k'. intros A B HA HB.
+    destruct HA as (kA&(fA&tA&mA&lA&fAposs&fAstart&fAend)&compatA).
+    destruct HB as (kB&(fB&tB&mB&lB&fBposs&fBstart&fBend)&compatB).
+    clear possible_k'.
+    pose proof (H _ _ _ _ _ fAposs fAstart fAend) as (kA'&blahA&CA). subst.
+    pose proof (H _ _ _ _ _ fBposs fBstart fBend) as (kB'&blahB&CB). subst.
+    apply app_inv_tail in blahA, blahB. subst. rewrite rev_involutive in CA, CB.
+    pose proof (CA _ compatA). pose proof (CB _ compatB). subst.
+    split; [|split].
+    - intros. destruct H0 as (kA'&H0). destruct H1 as (kB'pose proof 
+
+          
+        prefix (k ++ k0 ++ [e]) k'
+
+  
 
 Module possible.
 Section possible.
