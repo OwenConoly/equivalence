@@ -1045,7 +1045,7 @@ Section possible_vs_exec.
       let possible_k := (fun k' => exists t' m' l', possible e s k t m l (rev k' ++ k) t' m' l') in
       fun_reasonable (fun o => exists k, possible_k k /\ compat o k) f.
   Proof.
-    intros H. induction H; intros H' possible_k A B
+    intros H. revert f. induction H; intros f H' possible_k A B
                              (kA&(tA&mA&lA&possA)&compatA) (kB&(tB&mB&lB&possB)&compatB);
       pose proof (H' _ _ _ _ possA) as H'A; pose proof (H' _ _ _ _ possB) as H'B;
       destruct H'A as (k'A&H'A&CA); destruct H'B as (k'B&H'B&CB);
@@ -1067,7 +1067,41 @@ Section possible_vs_exec.
       apply rev_switch in H20. rewrite rev_involutive in H20.
       subst. specialize (CA A ltac:(assumption)). specialize (CB B ltac:(assumption)).
       rewrite CB in *. clear CB. apply reasonable'_same; auto.
-    - 
+    - inversion possA. inversion possB. clear possA possB. subst.
+      epose proof (fun a mStack mCombined H' H'' => H1 a mStack mCombined ltac:(congruence) H' H''
+                                            (fun o => match f (fun k_ => match k_ with
+                                                                   | [] => a
+                                                                   | _ :: k_' => o k_'
+                                                                   end) with
+                                                   | _ :: k => k
+                                                   | [] => []
+                                                   end) _) as H1.
+      Unshelve. all: cycle 1.
+      { intros.
+        specialize (H0 a mStack mCombined ltac:(congruence) ltac:(assumption) ltac:(assumption)).
+        pose proof (possible_to_exec _ _ _ _ _ _ _ H0 _ _ _ _ H2) as body_good.
+        simpl in body_good. fwd.
+        epose proof (H'0 _ _ _ _ _) as H'0. Unshelve. all: cycle 4.
+        { econstructor. 4: exact H2. 2: exact H'. all: eassumption. }
+        pose proof (possible_extends_trace _ _ _ _ _ _ _ _ _ _ H2) as H2'.
+        fwd. rewrite app_one_l in H'0p0. rewrite app_assoc in H'0p0.
+        apply app_inv_tail in H'0p0. subst. exists k''. split; [reflexivity|].
+        intros A' HA'. rewrite rev_app_distr in H'0p1. simpl in H'0p1. rewrite <- H'0p1.
+        - reflexivity.
+        - constructor; [reflexivity|assumption]. }
+      pose proof (H1 a mStack mCombined ltac:(assumption) ltac:(assumption)) as HA.
+      split; [|split].
+      + intros. pose proof (HA A B) as HAB. simpl in HAB.
+        Print fun_reasonable'.
+Search           rewrite rev_app
+        specialize (H'p1 (fun k_ => match k_ with
+                      p                          | [] => a
+                                                | _ :: k_' => A' k_'
+                                                end)).
+        
+        .
+        epose proof (H' _ _ _ _ _). Unshelve. all: cycle 5.
+        { econstructor. 4: exact H2. 2: exact H6. 3: exact H17. all: eauto.
 
       15: { 
       destruct H0 as (?&H0). rewrite <- app_assoc in H0. apply app_cons_not_nil in H0.
