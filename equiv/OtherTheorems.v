@@ -989,6 +989,19 @@ Section possible_vs_exec.
         fwd. intuition. Search (_ :: _ ++ _). rewrite app_comm_cons in H.
         apply app_inv_tail in H. inversion H. subst. simpl. reflexivity.
   Qed.
+
+  Lemma reasonable e s k t m l f :
+    (forall k' t' m' l', possible e s k t m l k' t' m' l' ->
+                    exists k'',
+                      k' = k'' ++ k /\
+                        (forall A, compat A (rev k'') -> (rev k'') = f A)) ->
+      let possible_k := (fun k' => exists t' m' l', possible e s k t m l (rev k' ++ k) t' m' l') in
+      fun_reasonable (fun o => exists k, possible_k k /\ compat o k) f.
+  Proof.
+    intros H possible_k. split; [|split].
+    - intros. fwd. subst possible_k. cbv beta in *. fwd. remember (rev k2 ++ k) as k'0.
+      induction H0p0.
+      + 
       
   Lemma possible_traces_sane e s k t m l k1 t1 m1 l1 evt k' :
     possible e s k t m l k1 t1 m1 l1 ->
