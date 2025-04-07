@@ -860,10 +860,21 @@ Ltac invert_stuff :=
   repeat match goal with
     | H1: ?e = Some ?v1, H2: ?e = Some ?v2 |- _ =>
         replace v2 with v1 in * by congruence; clear H2
+    end.
+
+
+Ltac invert_stuff' :=
+  repeat match goal with
+    | H1: ?e = Some (?x1, ?y1, ?z1), H2: ?e = Some (?x2, ?y2, ?z2) |- _ =>
+        rewrite H1 in H2; inversion H2; clear H1 H2; subst
+    end;
+  repeat match goal with
+    | H1: ?e = Some (?x1, ?z1), H2: ?e = Some (?x2, ?z2) |- _ =>
+        rewrite H1 in H2; inversion H2; clear H1 H2; subst
     end;
   repeat match goal with
     | H1: ?e = Some ?v1, H2: ?e = Some ?v2 |- _ =>
-        replace v2 with v1 in * by congruence; clear H2
+        rewrite H1 in H2; inversion H2; clear H1 H2; subst
     end.
 
 Section possible_vs_exec.
@@ -990,6 +1001,26 @@ Section possible_vs_exec.
         apply app_inv_tail in H. inversion H. subst. simpl. reflexivity.
   Qed.
 
+  Import List.ListNotations.
+  Print fun_reasonable'.
+
+  Lemma id_is_nil {A : Type} (l1 l2 : list A) :
+      l1 ++ l2 = l2 -> l1 = nil.
+    Proof. intros. eapply app_inv_tail. simpl. eassumption. Qed.
+
+    Lemma rev_nil_nil {A : Type} (l : list A) :
+      rev l = nil -> l = nil.
+    Proof. intros. rewrite <- (rev_involutive l). rewrite H. reflexivity. Qed.
+
+    Lemma rev_inj {A : Type} (l1 l2 : list A) :
+      rev l1 = rev l2 -> l1 = l2.
+    Proof. intros. rewrite <- (rev_involutive l1). rewrite H. apply rev_involutive. Qed.
+
+    Lemma rev_switch {A : Type} (l1 l2 : list A) :
+      rev l1 = l2 -> l1 = rev l2.
+    Proof.
+      intros. subst. symmetry. apply rev_involutive. Qed.
+      
   Lemma reasonable e s k t m l f :
     (forall k' t' m' l', possible e s k t m l k' t' m' l' ->
                     exists k'',
@@ -999,9 +1030,111 @@ Section possible_vs_exec.
       fun_reasonable (fun o => exists k, possible_k k /\ compat o k) f.
   Proof.
     intros H possible_k. split; [|split].
-    - intros. fwd. subst possible_k. cbv beta in *. fwd. remember (rev k2 ++ k) as k'0.
-      induction H0p0.
+    - intros. cbv beta in *. revert H1 f H k0 b1 H2 H3. fwd. revert A B H0p1.
+      unfold possible_k in H0p0. fwd. remember (rev k0 ++ k) as k'0. revert k0 Heqk'0.
+      induction H0p0; intros k0 Heqk'0 A B H1' H2' f H' k0' b preA preB; subst.
+      + fwd. subst possible_k. simpl in H2'p0. fwd. pose proof (H' _ _ _ _ H2'p0) as C1.
+        fwd. inversion H2'p0. subst. symmetry in H4. apply id_is_nil in H4.
+        apply rev_nil_nil in H4. subst. apply app_inv_tail in C1p0. subst.
+        simpl in C1p1. specialize (C1p1 A ltac:(constructor)). rewrite <- C1p1 in preA.
+        destruct preA as (?&preA). rewrite <- app_assoc in preA.
+        apply app_cons_not_nil in preA. destruct preA.
+      + fwd. subst possible_k. simpl in H2'p0. fwd. pose proof (H' _ _ _ _ H2'p0) as C1.
+        fwd. inversion H2'p0. subst. invert_stuff'. apply app_inv_tail in C1p0, H2.
+        apply rev_inj in H2. subst. rewrite rev_involutive in C1p1.
+        pose proof (C1p1 _ H2'p1) as fA1. pose proof (C1p1 _ H1') as fA2.
+        subst. rewrite fA2 in *.
+        apply compat'_iff_compat in H2'p1. cbv [Leakage.compat'] in H2'p1.
+        pose proof preA as (?&preA'). rewrite <- app_assoc in preA'.
+        apply H2'p1 in preA'. subst. assumption.
+      + fwd. subst possible_k. simpl in H2'p0. fwd. pose proof (H' _ _ _ _ H2'p0) as C1.
+        fwd. inversion H2'p0. subst. symmetry in H5. apply id_is_nil in H5.
+        apply rev_nil_nil in H5. subst. apply app_inv_tail in C1p0. subst.
+        simpl in C1p1. specialize (C1p1 A ltac:(constructor)). rewrite <- C1p1 in preA.
+        destruct preA as (?&preA). rewrite <- app_assoc in preA.
+        apply app_cons_not_nil in preA. destruct preA.
+      + fwd. subst possible_k. simpl in H2'p0. fwd. pose proof (H' _ _ _ _ H2'p0) as C1.
+        fwd. inversion H2'p0. subst. invert_stuff'. rewrite Heqk'0 in H5. clear Heqk'0.
+        apply app_inv_tail in C1p0, H5.
+        apply rev_inj in H5. subst. rewrite rev_involutive in C1p1.
+        pose proof (C1p1 _ H2'p1) as fA1. pose proof (C1p1 _ H1') as fA2.
+        subst. rewrite fA2 in *.
+        apply compat'_iff_compat in H2'p1. cbv [Leakage.compat'] in H2'p1.
+        pose proof preA as (?&preA'). rewrite <- app_assoc in preA'.
+        apply H2'p1 in preA'. subst. assumption.
+      + fwd. subst possible_k. simpl in H2'p0. fwd. pose proof (H' _ _ _ _ H2'p0) as C1.
+        fwd. inversion H2'p0. subst.
+        pose proof (possible_extends_trace _ _ _ _ _ _ _ _ _ _ H0p0) as H0p0'.
+        fwd. rewrite app_one_l in H0p0'. rewrite app_assoc in H0p0'.
+        apply app_inv_tail in H0p0'. apply rev_switch in H0p0'.
+        rewrite rev_app_distr in H0p0'. subst.
+        repeat rewrite rev_app_distr in IHH0p0 || rewrite rev_involutive in IHH0p0.
+        rewrite <- app_assoc in IHH0p0. rewrite <- (rev_involutive k''0) in IHH0p0.
+        specialize (IHH0p0 _ eq_refl). inversion H1'. subst.
+        specialize (IHH0p0 (fun k_ => A (Leakage.branch (A []) :: k_)) (fun k_ => B (Leakage.branch (B []) :: k_))).
+        specialize (IHH0p0 H12).
+        apply app_inv_tail in C1p0. subst.
+        pose proof (possible_extends_trace _ _ _ _ _ _ _ _ _ _ H10) as H10'.
+        fwd. rewrite app_one_l in H10'. rewrite app_assoc in H10'.
+        apply app_inv_tail in H10'. apply rev_switch in H10'.
+        subst. rewrite rev_involutive, rev_app_distr in C1p1.
+        rewrite rev_app_distr in H2'p1. inversion H2'p1. subst. Search k''.
+        pose proof (C1p1 B ltac:(constructor; [reflexivity|assumption])) as fB.
+        destruct k0'; simpl in *.
+        { rewrite <- fB. exists (rev k''). reflexivity. }
+        rewrite <- fB in preB. destruct preB as (?&preB). inversion preB. clear preB.
+        apply rev_switch in H6. rewrite rev_app_distr in H6. subst.
+        repeat (rewrite rev_app_distr in * || rewrite rev_involutive in * ).
+        repeat rewrite <- app_assoc in *. destruct preA as (?&preA).
+        epose proof (H' _ _ _ _ _) as CA. Unshelve. all: cycle 5.
+        { econstructor. 4: exact H0p0. 2: exact H0. all: eassumption. }
+        fwd. rewrite app_assoc in CAp0. apply app_inv_tail in CAp0. subst.
+        rewrite rev_app_distr in *. simpl in CAp1.
+        pose proof (CAp1 A ltac:(constructor; [reflexivity|assumption])) as fA.
+        rewrite <- fA in preA. simpl in preA. inversion preA. clear preA.
+        rewrite <- app_assoc in H6. apply rev_switch in H6. rewrite rev_app_distr in H6.
+        simpl in H6. rewrite <- app_assoc in H6. subst. rewrite <- H5 in *.
+        repeat (rewrite rev_app_distr in * || rewrite rev_involutive in * ).
+        repeat rewrite <- app_assoc in *.
+        epose proof (IHH0p0 _) as IHH0p0. Unshelve. all: cycle 1.
+        { eexists. split.
+          { do 3 eexists. move H0p0 at bottom. instantiate (4 := _ ++ _ :: _).
+            rewrite rev_app_distr. simpl. repeat rewrite <- app_assoc. exact H0p0. }
+          
+             rewrite asimpl in H0p0. (*need more relation of f A to f B*)
+          Search A. 
+          eassumption.
+          reassumption.
+B        
+        
+        rewrite <- 
+        destruct k0'; simpl in *.
+        -- pose proof (
+        epose proof (IHH0p0 _) as IHH0p0. Unshelve. all: cycle 1.
+        
+        { 
+        epose proof (IHH0p0 _ _) as IHH0p0.
+        Unshelve. all: cycle 1.
+        { rewrite rev_involutive k''0.
+
+        rewrite Heqk'0 in H5. clear Heqk'0.
+        apply app_inv_tail in C1p0, H5.
+        apply rev_inj in H5. subst. rewrite rev_involutive in C1p1.
+        pose proof (C1p1 _ H2'p1) as fA1. pose proof (C1p1 _ H1') as fA2.
+        subst. rewrite fA2 in *.
+        apply compat'_iff_compat in H2'p1. cbv [Leakage.compat'] in H2'p1.
+        pose proof preA as (?&preA'). rewrite <- app_assoc in preA'.
+        apply H2'p1 in preA'. subst. assumption.
       + 
+      + fwd. subst possible_k. simpl in H2'p0. fwd. pose proof (H' _ _ _ _ H2'p0) as C1.
+        fwd. inversion H2'p0. subst. apply app_inv_tail in C1p0.
+        symmetry in H5. apply id_is_nil in H5. apply rev_nil_nil in H5. subst.
+        apply rev_inj in H2. subst. rewrite rev_involutive in C1p1.
+        pose proof (C1p1 _ H2'p1) as fA1. pose proof (C1p1 _ H1') as fA2.
+        subst. rewrite fA2 in *.
+        apply compat'_iff_compat in H2'p1. cbv [Leakage.compat'] in H2'p1.
+        pose proof preA as (?&preA'). rewrite <- app_assoc in preA'.
+        apply H2'p1 in preA'. subst. assumption. + 
       
   Lemma possible_traces_sane e s k t m l k1 t1 m1 l1 evt k' :
     possible e s k t m l k1 t1 m1 l1 ->
@@ -1039,21 +1172,10 @@ Section possible_vs_exec.
         split; [reflexivity|]. reflexivity.
   
 End possible_vs_exec.  
-    Import List.ListNotations.
-
+    
     Definition possible_trace e s k t m l mc k' := exists t' m' l' mc', strongest_post e s k t m l mc k' t' m' l' mc'.
 
-    Lemma id_is_nil {A : Type} (l1 l2 : list A) :
-      l1 ++ l2 = l2 -> l1 = nil.
-    Proof. intros. eapply app_inv_tail. simpl. eassumption. Qed.
-
-    Lemma rev_nil_nil {A : Type} (l : list A) :
-      rev l = nil -> l = nil.
-    Proof. intros. rewrite <- (rev_involutive l). rewrite H. reflexivity. Qed.
-
-    Lemma rev_inj {A : Type} (l1 l2 : list A) :
-      rev l1 = rev l2 -> l1 = l2.
-    Proof. intros. rewrite <- (rev_involutive l1). rewrite H. apply rev_involutive. Qed.
+    
     
      Lemma trace_is_sane e s k t m l mc k1' k2' k' evt post0 :
        exec_nondet e s k t m l mc post0 ->
