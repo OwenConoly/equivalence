@@ -1030,9 +1030,9 @@ Section possible_vs_exec.
       fun_reasonable (fun o => exists k, possible_k k /\ compat o k) f.
   Proof.
     intros H possible_k. split; [|split].
-    - intros. cbv beta in *. revert H1 f H k0 b1 H2 H3. fwd. revert A B H0p1.
-      unfold possible_k in H0p0. fwd. remember (rev k0 ++ k) as k'0. revert k0 Heqk'0.
-      induction H0p0; intros k0 Heqk'0 A B H1' H2' f H' k0' b preA preB; subst.
+    - intros. cbv beta in *. revert H0 f H k0 b1 H2 H3. fwd. revert A B H1p1.
+      unfold possible_k in H1p0. fwd. remember (rev k0 ++ k) as k'0. revert k0 Heqk'0.
+      induction H1p0; intros k0 Heqk'0 A B H1' H2' f H' k0' b preA preB; subst.
       + fwd. subst possible_k. simpl in H2'p0. fwd. pose proof (H' _ _ _ _ H2'p0) as C1.
         fwd. inversion H2'p0. subst. symmetry in H4. apply id_is_nil in H4.
         apply rev_nil_nil in H4. subst. apply app_inv_tail in C1p0. subst.
@@ -1044,9 +1044,9 @@ Section possible_vs_exec.
         apply rev_inj in H2. subst. rewrite rev_involutive in C1p1.
         pose proof (C1p1 _ H2'p1) as fA1. pose proof (C1p1 _ H1') as fA2.
         subst. rewrite fA2 in *.
-        apply compat'_iff_compat in H2'p1. cbv [Leakage.compat'] in H2'p1.
+        apply compat'_iff_compat in H1'. cbv [Leakage.compat'] in H1'.
         pose proof preA as (?&preA'). rewrite <- app_assoc in preA'.
-        apply H2'p1 in preA'. subst. assumption.
+        apply H1' in preA'. subst. assumption.
       + fwd. subst possible_k. simpl in H2'p0. fwd. pose proof (H' _ _ _ _ H2'p0) as C1.
         fwd. inversion H2'p0. subst. symmetry in H5. apply id_is_nil in H5.
         apply rev_nil_nil in H5. subst. apply app_inv_tail in C1p0. subst.
@@ -1059,20 +1059,20 @@ Section possible_vs_exec.
         apply rev_inj in H5. subst. rewrite rev_involutive in C1p1.
         pose proof (C1p1 _ H2'p1) as fA1. pose proof (C1p1 _ H1') as fA2.
         subst. rewrite fA2 in *.
-        apply compat'_iff_compat in H2'p1. cbv [Leakage.compat'] in H2'p1.
+        apply compat'_iff_compat in H1'. cbv [Leakage.compat'] in H1'.
         pose proof preA as (?&preA'). rewrite <- app_assoc in preA'.
-        apply H2'p1 in preA'. subst. assumption.
-      + fwd. subst possible_k. simpl in H2'p0. fwd. pose proof (H' _ _ _ _ H2'p0) as C1.
+        apply H1' in preA'. subst. assumption.
+      + fwd. subst possible_k. simpl in H2'p0. fwd. pose proof (H' _ _ _ _ H2'p0) as CB.
         fwd. inversion H2'p0. subst.
-        pose proof (possible_extends_trace _ _ _ _ _ _ _ _ _ _ H0p0) as H0p0'.
-        fwd. rewrite app_one_l in H0p0'. rewrite app_assoc in H0p0'.
-        apply app_inv_tail in H0p0'. apply rev_switch in H0p0'.
-        rewrite rev_app_distr in H0p0'. subst.
-        repeat rewrite rev_app_distr in IHH0p0 || rewrite rev_involutive in IHH0p0.
-        rewrite <- app_assoc in IHH0p0. rewrite <- (rev_involutive k''0) in IHH0p0.
-        specialize (IHH0p0 _ eq_refl). inversion H1'. subst.
-        specialize (IHH0p0 (fun k_ => A (Leakage.branch (A []) :: k_)) (fun k_ => B (Leakage.branch (B []) :: k_))).
-        specialize (IHH0p0 H12).
+        pose proof (possible_extends_trace _ _ _ _ _ _ _ _ _ _ H1p0) as H1p0'.
+        fwd. rewrite app_one_l in H1p0'. rewrite app_assoc in H1p0'.
+        apply app_inv_tail in H1p0'. apply rev_switch in H1p0'.
+        rewrite rev_app_distr in H1p0'. subst.
+        repeat rewrite rev_app_distr in IHH1p0 || rewrite rev_involutive in IHH1p0.
+        rewrite <- app_assoc in IHH1p0. rewrite <- (rev_involutive k''0) in IHH1p0.
+        specialize (IHH1p0 _ eq_refl). inversion H1'. subst.
+        specialize (IHH1p0 (fun k_ => A (Leakage.branch (A []) :: k_)) (fun k_ => B (Leakage.branch (B []) :: k_))).
+        specialize (IHH1p0 H12).
         apply app_inv_tail in C1p0. subst.
         pose proof (possible_extends_trace _ _ _ _ _ _ _ _ _ _ H10) as H10'.
         fwd. rewrite app_one_l in H10'. rewrite app_assoc in H10'.
@@ -1100,7 +1100,6 @@ Section possible_vs_exec.
         { eexists. split.
           { do 3 eexists. move H0p0 at bottom. instantiate (4 := _ ++ _ :: _).
             rewrite rev_app_distr. simpl. repeat rewrite <- app_assoc. exact H0p0. }
-          
              rewrite asimpl in H0p0. (*need more relation of f A to f B*)
           Search A. 
           eassumption.
