@@ -139,7 +139,8 @@ Module ext_spec.
                      (Morphisms.pointwise_relation (list word) Basics.impl))) Basics.impl)
             (ext_spec t mGive act args);
 
-      intersect: forall t mGive a args,
+      intersect: forall t mGive a args post,
+        ext_spec t mGive a args post ->
         ext_spec t mGive a args (fun mReceive resvals klist =>
                                    forall mid, ext_spec t mGive a args mid ->
                                           mid mReceive resvals klist);

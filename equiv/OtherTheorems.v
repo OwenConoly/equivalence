@@ -605,12 +605,6 @@ Section ShortTheorems.
   Lemma extend_or_not {A : Type} (possible : _ -> Prop) :
     exists f, forall (k : list A), (exists k', possible (k ++ k')) -> possible (k ++ f k).
   Proof. Admitted.
-
-  Lemma predicts_ext f g k :
-    predicts f k ->
-    (forall k, f k = g k) ->
-    predicts g k.
-  Proof. Admitted.
   
   Lemma predictor_from_nowhere f (possible : _ -> Prop) :
     fun_reasonable (fun o => exists k, possible k /\ compat o k) f ->
@@ -840,9 +834,10 @@ Section possible.
     : possible (cmd.call binds fname arges) k t m l k'' t' m' l'
   | interact binds action arges
       k t m l l' m'
-      mKeep mGive (_: map.split m mKeep mGive)
+      mKeep mGive mid (_: map.split m mKeep mGive)
       args k' (_ :  evaluate_call_args_log m l arges k = Some (args, k'))
       mReceive resvals klist
+      (_ : ext_spec t mGive action args mid)
       (_ : forall mid, ext_spec t mGive action args mid -> mid mReceive resvals klist)
       (_ : map.putmany_of_list_zip binds resvals l = Some l' /\
              map.split m' mKeep mReceive)
@@ -851,6 +846,29 @@ Section possible.
 End possible.
 End possible. Notation possible := possible.possible.
 
+Ltac invert_stuff :=
+  repeat match goal with
+    | H1: ?e = Some (?x1, ?y1, ?z1), H2: ?e = Some (?x2, ?y2, ?z2) |- _ =>
+        replace x2 with x1 in * by congruence;
+        replace y2 with y1 in * by congruence;
+        replace z2 with z1 in * by congruence;
+        clear x2 y2 z2 H2
+    end;
+  repeat match goal with
+    | H1: ?e = Some (?x1, ?z1), H2: ?e = Some (?x2, ?z2) |- _ =>
+        replace x2 with x1 in * by congruence;
+        replace z2 with z1 in * by congruence;
+        clear x2 z2 H2
+    end;
+  repeat match goal with
+    | H1: ?e = Some ?v1, H2: ?e = Some ?v2 |- _ =>
+        replace v2 with v1 in * by congruence; clear H2
+    end;
+  repeat match goal with
+    | H1: ?e = Some ?v1, H2: ?e = Some ?v2 |- _ =>
+        replace v2 with v1 in * by congruence; clear H2
+    end.
+
 Section possible_vs_exec.
   Context {width: Z} {BW: Bitwidth width} {word: word.word width} {mem: map.map word byte}.
   Context {locals: map.map String.string word}.
@@ -858,17 +876,40 @@ Section possible_vs_exec.
   Context {ext_spec: ExtSpec}.
   Context {word_ok: word.ok word} {mem_ok: map.ok mem} {ext_spec_ok: ext_spec.ok ext_spec}.
   
-  Lemma possible_to_exec e s k t m l k' t' m' l' post :
+  Lemma possible_to_exec e s k t m l post :
     exec_nondet e s k t m l post ->
+    forall k' t' m' l', 
     possible e s k t m l k' t' m' l' ->
     post k' t' m' l'.
-  Proof. Admitted.
-
+  Proof.
+    intros Hexec. induction Hexec; intros kF tF mF lF H'; try solve [inversion H'; subst; invert_stuff; auto].
+    - inversion H'. clear H'. subst. fwd.
+      specialize (H1 _ _ _ ltac:(congruence) H14p0 H14p1 _ _ _ _ H14p2p0). fwd.
+      lazymatch goal with
+      | A: map.split ?a ?y ?z, B: map.split ?a ?y' ?z' |- _ =>
+        specialize @map.split_diff with (4 := A) (5 := B) as Q
+      end.
+      edestruct Q; try typeclasses eauto. 2: subst; eauto 10.
+      eapply anybytes_unique_domain; eassumption.
+    - inversion H'; try congruence. subst. invert_stuff. apply IHHexec. assumption.
+    - inversion H'; try congruence. subst. invert_stuff. apply IHHexec. assumption.
+    - inversion H'. subst. eauto.
+    - inversion H'; congruence.
+    - inversion H'; try congruence. subst. invert_stuff. eauto.
+    - inversion H'. subst. fwd. invert_stuff. apply IHHexec in H17. apply H2 in H17.
+      fwd. invert_stuff. assumption.
+    - inversion H'. subst. invert_stuff.
+      pose proof ext_spec.unique_mGive_footprint as Q.
+      specialize Q with (1 := H1) (2 := H8).
+      destruct (map.split_diff Q H H6). subst mKeep0 mGive0.
+      apply H17 in H1. apply H2 in H1. fwd. invert_stuff. eauto.
+  Qed.
+      
   Lemma intersect_two e s k t m l post1 post2 :
     exec_nondet e s k t m l post1 ->
     exec_nondet e s k t m l post2 ->
     exec_nondet e s k t m l (fun k' t' m' l' => post1 k' t' m' l' /\ post2 k' t' m' l').
-  Proof. Admitted.    
+  Proof. Admitted.
 
   Lemma possible_to_exec2 e s k t m l post :
     exec_nondet e s k t m l post ->
@@ -897,7 +938,8 @@ Section possible_vs_exec.
     - econstructor. 1,2,3: eauto. 1: eapply intersect_two. 1: eapply H2. 1: eapply IHexec.
       simpl. intros. fwd. apply H3 in H4p0. fwd. eexists. intuition eauto.
       eexists. intuition eauto. econstructor; eauto.
-    - econstructor. 3: apply ext_spec.intersect. 1,2: eauto. simpl. intros.
+    - econstructor. 3: eapply ext_spec.intersect; eauto. 1,2: eauto. simpl. intros.
+      pose proof H1 as H1'.
       apply H3 in H1. apply H2 in H1. fwd. exists l'. intuition. econstructor; eauto.
   Qed.
     
@@ -909,198 +951,18 @@ Section possible_vs_exec.
     - intros. eapply possible_to_exec; eassumption.
     - intros. eapply weaken. 1: eapply possible_to_exec2; eassumption. assumption.
   Qed.
-  
-  Definition exactly (k': trace) (t' : io_trace) (m' : mem) (l' : locals) := fun k'0 t'0 m'0 l'0 => k'0 = k' /\ t'0 = t' /\ m'0 = m' /\ l'0 = l'.
-  
-  Lemma exec_to_possible e s k t m l post0 :
-    excluded_middle ->
-    exec_nondet e s k t m l post0 ->
-    forall k' t' m' l',
-    (forall post, exec_nondet e s k t m l post -> post k' t' m' l') ->
-    possible e s k t m l k' t' m' l'.
+
+  Lemma possible_traces_sane e s k t m l k1 t1 m1 l1 k2 t2 m2 l2 evt k' :
+    possible e s k t m l k1 t1 m1 l1 ->
+    possible e s k t m l k2 t2 m2 l2 ->
+    (exists k1_, k1 = k1_ ++ evt :: k') ->
+    (exists k2_, k2 = k2_ ++ k') ->
+    exists evt' k2_, k2 = k2_ ++ evt' :: k' /\ Leakage.q evt = Leakage.q evt'.
   Proof.
-    intros em Hexec. induction Hexec; intros kF tF mF lF H'.
-    - epose proof (H' (exactly _ _ _ _) _) as H'. Unshelve. all: cycle 1.
-      { econstructor; eauto. cbv [exactly]. eauto. }
-      cbv [exactly] in H'. fwd. econstructor; eauto.
-    - epose proof (H' (exactly _ _ _ _) _) as H'. Unshelve. all: cycle 1.
-      { econstructor; eauto. cbv [exactly]. eauto. }
-      cbv [exactly] in H'. fwd. econstructor; eauto.
-    - epose proof (H' (exactly _ _ _ _) _) as H'. Unshelve. all: cycle 1.
-      { econstructor; eauto. cbv [exactly]. eauto. }
-      cbv [exactly] in H'. fwd. econstructor; eauto.
-    - epose proof (H' (exactly _ _ _ _) _) as H'. Unshelve. all: cycle 1.
-      { econstructor; eauto. cbv [exactly]. eauto. }
-      cbv [exactly] in H'. fwd. econstructor; eauto.
+    intros poss1. induction poss1. 5: { intros poss2 pre1 pre2; (inversion poss2; try congruence; []); clear poss2; subst; invert_stuff; fwd; try solve [do 2 eexists; split; [eassumption|reflexivity]].
     - 
-      (*the hypothesis here (H') is: \forall post. \bigcup_i branch_i \subseteq post \implies post k.
-        desired conclusion is: \exists i. k \in branch_i.
-        There might be a way to do this without excluded middle?  Not sure.  In any case, I will use it.*)
-      econstructor. ; eauto.
-      assert (~forall a mStack mCombined,
-                  anybytes a n mStack ->
-                  map.split mCombined mSmall mStack ->
-                  exec_nondet e body (Leakage.branch a :: k) t mCombined 
-                            (map.put l x a) (fun k' t' mCombined' l' =>
-                                               exists mSmall' mStack',
-                                                 anybytes a n mStack' /\
-                                                   map.split mCombined' mSmall' mStack' /\
-                                                   ~(k' = kF /\ t' = tF /\ mSmall' = mF /\ l' = lF))).
-      { intros H''. epose proof (H' _ _) as H'. Unshelve. all: cycle 1.
-        - econstructor. 1: eassumption. intros. eapply H''; eassumption.
-        - simpl in H'. apply H'. auto. }
-      move H1 at bottom. move H0 at bottom.
-      match goal with | |- ?P => assert (P_or_not := em P) end. destruct P_or_not; [assumption|].
-      exfalso. apply H2. clear H2. intros.
-      specialize (H1 _ _ _ ltac:(congruence) ltac:(eassumption) ltac:(eassumption)).
-      specialize (H0 _ _ _ ltac:(congruence) ltac:(eassumption) ltac:(eassumption)).
-      match goal with | |- ?P => assert (P_or_not := em P) end. destruct P_or_not; [assumption|].
-           exfalso. apply H3. clear H3. exists a, mStack, mCombined. split; [assumption|].
-           split; [assumption|]. specialize (H1
-           specialize (H1 kF tF 
-           match goal with | |- ?P => assert (P_or_not := em P) end. destruct P_or_not; [assumption|].
-           exfalso. apply H5. clear H5. apply H0.
-             exfalso. apply H3. exfalso. apply H2. intros. clear H2.
-             match goal with | |- ?P => assert (P_or_not := em P) end. destruct P_or_not; [assumption|].
-             exfalso. apply H3. clear H3. exists a, mStack, mCombined. split; [assumption|].
-             split; [assumption|]. intros.
-             match goal with | |- ?P => assert (P_or_not := em P) end. destruct P_or_not; [assumption|].
-             exfalso. apply H2. clear H2. exists post0. auto. }
-           clear H2. fwd. specialize (H1 _ _ _ ltac:(congruence) ltac:(eassumption) ltac:(eassumption) ltac:(assumption)).
-           exists a, mStack, mCombined.
-           split; [assumption|]. split; [assumption|]. exists m'. split; [assumption|].
-           specialize (H0 _ _ _ ltac:(congruence) ltac:(eassumption) ltac:(eassumption)).
-           apply H3p2 in H0. fwd.
-             intuition. apply H2. clear H2.
-             clear H3.
-      
-      eassert (forall a mStack mCombined, ~_) as H''.
-      { intros a mStack mCombined notthing. apply H2. exists a, mStack, mCombined. exact notthing. }
-      clear H2. exfalso. epose proof (H' (fun k'0 t'0 m'0 l'0 => ~exactly k' t' m' l' k'0 t'0 m'0 l'0)) as H'.
-      Unshelve. all: cycle 1.
-      { econstructor; eauto. intros. specialize (H1 _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(eassumption)).
-      
-      epose proof (H' (fun k'0 t'0 m'0 l'0 => exists a mStack mCombined,
-                           anybytes a n mStack /\
-                             map.split mCombined mSmall mStack /\
-                             forall post,
-                               exec_nondet e body (Leakage.branch a :: k) t mCombined (map.put l x a)
-                                 (fun (k' : trace) (t' : io_trace) (mCombined' : mem) (l' : locals) =>
-                                    exists mSmall' mStack' : mem,
-                                      anybytes a n mStack' /\
-                                        map.split mCombined' mSmall' mStack' /\ post k' t' mSmall' l') -> post k'0 t'0 m'0 l'0) _).
-      Unshelve. all: cycle 1.
-      { econstructor; eauto. intros. specialize (H0 _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(eassumption)).
-        eapply weaken. 1: eapply H0. simpl. intros. fwd. eexists. eexists. intuition eauto. eexists. eexists. eexists. split; [exact H3|]. intuition eauto.
-        
-        split; [exact H5intuition eauto. }
-      simpl in H2. fwd. epose proof (H1 _ _ _ ltac:(congruence) ltac:(eassumption) ltac:(eassumption) _) as H1.
-      Unshelve. all: cycle 1.
-      { intros. apply H'. econstructor.
-
   
-Module UseExec.
-  Section UseExec.
-    Context {width: Z} {BW: Bitwidth width} {word: word.word width} {mem: map.map word byte}.
-    Context {locals: map.map String.string word}.
-    Context {env: map.map String.string (list String.string * list String.string * cmd)}.
-    Context {ext_spec: ExtSpec}.
-    Context {word_ok: word.ok word} {mem_ok: map.ok mem} {ext_spec_ok: ext_spec.ok ext_spec}.
-
-    Definition strongest_post e s k t m l mc k' t' m' l' mc' :=
-      forall P, exec_nondet e s k t m l mc P -> P k' t' m' l' mc'.
-
-    Ltac intersect_stuff :=
-      try match goal with
-      | H: exec_nondet _ _ _ _ _ _ _ _ |- _ => inversion H; subst; clear H
-      end;
-      repeat match goal with
-      | H1: ?e = Some (?x1, ?y1, ?z1), H2: ?e = Some (?x2, ?y2, ?z2) |- _ =>
-        replace x2 with x1 in * by congruence;
-          replace y2 with y1 in * by congruence;
-          replace z2 with z1 in * by congruence;
-          clear x2 y2 z2 H2
-      end;
-      repeat match goal with
-             | H1: ?e = Some ?v1, H2: ?e = Some ?v2 |- _ =>
-               replace v2 with v1 in * by congruence; clear H2
-             end;
-      repeat match goal with
-             | H1: ?e = Some ?v1, H2: ?e = Some ?v2 |- _ =>
-               replace v2 with v1 in * by congruence; clear H2
-             end.
-    
-    (*infinite intersection lemma*)
-    Lemma exec_to_strongest_post' e s k t m l mc post :
-      exec_nondet e s k t m l mc post ->
-      exec_nondet e s k t m l mc (fun k' t' m' l' mc' => post k' t' m' l' mc' /\ strongest_post e s k t m l mc k' t' m' l' mc').
-    Proof.
-      intros H. induction H; try solve [econstructor; eauto; intuition; [idtac]; cbv [strongest_post]; intros; intersect_stuff; auto].
-      - econstructor; eauto. intros. eapply weaken. 1: eapply H1; eauto.
-        simpl. intros. fwd. eexists. eexists. intuition eauto 10.
-        cbv [strongest_post]. intros. intersect_stuff.
-        specialize (H16 _ _ _ H2 H3 H4). apply H5p1 in H16. fwd.
-        lazymatch goal with
-      | A: map.split _ _ _, B: map.split _ _ _ |- _ =>
-        specialize @map.split_diff with (4 := A) (5 := B) as Q
-      end.
-      edestruct Q; try typeclasses eauto. 2: subst; eauto 10.
-      eapply anybytes_unique_domain; eassumption.
-      - eapply if_true; eauto. eapply weaken. 1: exact IHexec. simpl. intros.
-        fwd. intuition. cbv [strongest_post]. intros. intersect_stuff. 2: congruence.
-        apply H2p1 in H14. assumption.
-      - eapply if_false; eauto. eapply weaken. 1: exact IHexec. simpl. intros.
-        fwd. intuition. cbv [strongest_post]. intros. intersect_stuff. 1: congruence.
-        apply H2p1 in H14. assumption.
-      - econstructor; eauto. simpl. intros. fwd. eapply weaken. 1: apply H1; auto.
-        simpl. intros. fwd. intuition. cbv [strongest_post]. intros. intersect_stuff.
-        apply H2p1 in H5. apply H12 in H5. apply H2p3 in H5. assumption.
-      - eapply while_false; eauto. intuition. cbv [strongest_post]. intros. intersect_stuff.
-        2: congruence. assumption.
-      - eapply while_true; eauto. simpl. intros. fwd. eapply weaken.
-        1: apply H3(*NOT H2*); assumption. simpl. intros. fwd.
-        intuition. cbv [strongest_post]. intros. intersect_stuff. 1: congruence.
-        Search mid0. apply H4p1 in H9. apply H16 in H9. clear H16. apply H4p3 in H9.
-        assumption.
-      - econstructor; eauto. simpl. intros. fwd. apply H3 in H4p0. fwd. eexists.
-        intuition eauto. eexists. intuition eauto. cbv [strongest_post]. intros.
-        intersect_stuff. Search mid0. apply H4p1 in H17. apply H18 in H17. clear H18.
-        fwd. rewrite H4p0p0 in H17p0. inversion H17p0. subst.
-        rewrite H4p0p1p0 in H17p1p0. inversion H17p1p0. subst. assumption.
-      - econstructor. 1,2: eauto.
-        { apply ext_spec.intersect. }
-        simpl. intros. pose proof H1 as H1'. apply H3 in H1.
-        apply H2 in H1. clear H2.
-        fwd. eexists. intuition eauto. cbv [strongest_post]. intros. intersect_stuff.
-        pose proof ext_spec.unique_mGive_footprint as Q.
-        specialize Q with (1 := H1') (2 := H15).
-        destruct (map.split_diff Q H H7). subst mKeep0 mGive0. clear H7.
-        apply H3 in H15. apply H16 in H15. fwd. apply H15p1 in H1.
-        Search l'0. Search l'. rewrite H1p0 in H15p0. inversion H15p0. subst.
-        assumption.
-    Qed.
-
-    Lemma exec_to_strongest_post e s k t m l mc post :
-      exec_nondet e s k t m l mc post ->
-      exec_nondet e s k t m l mc (strongest_post e s k t m l mc).
-    Proof.
-      intros. eapply weaken. 1: apply exec_to_strongest_post'; eassumption.
-      simpl. intros. fwd. auto.
-    Qed.
-        
-    Lemma exec_iff_impl_by_strongest_post e s k t m l mc post0 :
-      exec_nondet e s k t m l mc post0 ->
-      forall post,
-      exec_nondet e s k t m l mc post <->
-        (forall k' t' m' l' mc', strongest_post e s k t m l mc k' t' m' l' mc' -> post k' t' m' l' mc').
-    Proof.
-      intros H post. apply exec_to_strongest_post in H. split.
-      - intros H1. cbv [strongest_post]. intros * H'. apply H'. apply H1.
-      - intros H'. eapply weaken. 1: eassumption. assumption.
-    Qed.
-  End UseExec.
-End UseExec.
-
+End possible_vs_exec.  
     Import List.ListNotations.
 
     Definition possible_trace e s k t m l mc k' := exists t' m' l' mc', strongest_post e s k t m l mc k' t' m' l' mc'.
