@@ -1021,11 +1021,12 @@ Section possible_vs_exec.
     Proof.
       intros. subst. symmetry. apply rev_involutive. Qed.
       
-  Lemma reasonable e s k t m l f :
-    (forall k' t' m' l', possible e s k t m l k' t' m' l' ->
-                    exists k'',
-                      k' = k'' ++ k /\
-                        (forall A, compat A (rev k'') -> (rev k'') = f A)) ->
+    Lemma reasonable e s k t m l f post :
+      exec_nondet e s k t m l post ->
+      (forall k' t' m' l', possible e s k t m l k' t' m' l' ->
+                      exists k'',
+                        k' = k'' ++ k /\
+                          (forall A, compat A (rev k'') -> (rev k'') = f A)) ->
       let possible_k := (fun k' => exists t' m' l', possible e s k t m l (rev k' ++ k) t' m' l') in
       fun_reasonable (fun o => exists k, possible_k k /\ compat o k) f.
   Proof.
