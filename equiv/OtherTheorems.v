@@ -784,15 +784,12 @@ Section possible.
   | stackalloc x n body
       k t mSmall l k' t' mSmall' l'
       (_ : Z.modulo n (bytes_per_word width) = 0)
-      (_ : exists a mStack mCombined,
-          anybytes a n mStack /\
-            map.split mCombined mSmall mStack /\
-            exists mCombined',
-              possible body (Leakage.branch a :: k) t mCombined (map.put l x a)
-                k' t' mCombined' l' /\
-                exists mStack',
-                  anybytes a n mStack' /\
-                    map.split mCombined' mSmall' mStack')
+      a mStack mCombined mCombined' mStack'
+      (_ : anybytes a n mStack)
+      (_ : map.split mCombined mSmall mStack)
+      (_ : possible body (Leakage.branch a :: k) t mCombined (map.put l x a) k' t' mCombined' l')
+      (_ : anybytes a n mStack') 
+      (_ : map.split mCombined' mSmall' mStack')
     : possible (cmd.stackalloc x n body) k t mSmall l k' t' mSmall' l'
             
   | if_true k t m l e c1 c2 k'' t' m' l'
@@ -883,8 +880,8 @@ Section possible_vs_exec.
     post k' t' m' l'.
   Proof.
     intros Hexec. induction Hexec; intros kF tF mF lF H'; try solve [inversion H'; subst; invert_stuff; auto].
-    - inversion H'. clear H'. subst. fwd.
-      specialize (H1 _ _ _ ltac:(congruence) H14p0 H14p1 _ _ _ _ H14p2p0). fwd.
+    - inversion H'. clear H'. subst.
+      specialize (H1 _ _ _ ltac:(congruence) H6 H7 _ _ _ _ H8). fwd.
       lazymatch goal with
       | A: map.split ?a ?y ?z, B: map.split ?a ?y' ?z' |- _ =>
         specialize @map.split_diff with (4 := A) (5 := B) as Q
@@ -922,8 +919,7 @@ Section possible_vs_exec.
     - econstructor; eauto. econstructor; eauto.
     - econstructor; eauto. intros. eapply weaken. 1: eapply intersect_two.
       1: eapply H0; eauto. 1: eapply H1; eauto. simpl. intros. fwd.
-      do 2 eexists. intuition eauto. econstructor; eauto. exists a, mStack, mCombined.
-      intuition. exists m'. intuition. exists mStack'. auto.
+      do 2 eexists. intuition eauto. econstructor. 2: exact H3. all: eauto.
     - eapply if_true; eauto. eapply weaken. 1: eapply IHexec. intros.
       eapply possible.if_true; eauto.
     - eapply if_false; eauto. eapply weaken. 1: eapply IHexec. intros.
@@ -952,15 +948,82 @@ Section possible_vs_exec.
     - intros. eapply weaken. 1: eapply possible_to_exec2; eassumption. assumption.
   Qed.
 
-  Lemma possible_traces_sane e s k t m l k1 t1 m1 l1 k2 t2 m2 l2 evt k' :
-    possible e s k t m l k1 t1 m1 l1 ->
-    possible e s k t m l k2 t2 m2 l2 ->
-    (exists k1_, k1 = k1_ ++ evt :: k') ->
-    (exists k2_, k2 = k2_ ++ k') ->
-    exists evt' k2_, k2 = k2_ ++ evt' :: k' /\ Leakage.q evt = Leakage.q evt'.
+  Ltac subst_exprs :=
+  repeat match goal with
+    | H : eval_expr _ _ _ _ = Some _ |- _ =>
+        apply eval_expr_extends_trace in H; destruct H as [? [? ?] ]; subst
+    | H : evaluate_call_args_log _ _ _ _ = Some _ |- _ =>
+        apply evaluate_call_args_log_extends_trace in H; destruct H as [? [? ?] ]; subst
+    end.
+
+  Lemma possible_extends_trace e s k t m l k' t' m' l' :
+    possible e s k t m l k' t' m' l' ->
+    exists k'', k' = k'' ++ k.
   Proof.
-    intros poss1. induction poss1. 5: { intros poss2 pre1 pre2; (inversion poss2; try congruence; []); clear poss2; subst; invert_stuff; fwd; try solve [do 2 eexists; split; [eassumption|reflexivity]].
-    - 
+    intros H. induction H; subst_exprs; fwd; try solve [eexists; trace_alignment].
+  Qed.
+
+  Require Import Lia.
+
+  Lemma app_inv {A : Type} (l1 l2 l1' l2' : list A) :
+    length l2 = length l2' ->
+    l1 ++ l2 = l1' ++ l2' ->
+    l1 = l1' /\ l2 = l2'.
+  Proof.
+    intros H1 H2. assert (H: rev (l1 ++ l2) = rev (l1' ++ l2')).
+    { f_equal. assumption. }
+    clear H2. do 2 rewrite rev_app_distr in H. rewrite <- (rev_involutive l2) in H1.
+    rewrite <- (rev_involutive l2). revert l2' H1 H; induction (rev l2); intros; simpl in *.
+    - destruct l2'.
+      + simpl in H. intuition. rewrite <- (rev_involutive l1). rewrite H.
+        rewrite rev_involutive. reflexivity.
+      + discriminate H1.
+    - rewrite length_app, length_rev in H1. simpl in H1.
+      rewrite <- (rev_involutive l2') in H1. rewrite <- (rev_involutive l2').
+      destruct (rev l2').
+      + simpl in H1. lia.
+      + simpl in H1. rewrite length_app in H1. simpl in H1. rewrite length_rev in *.
+        replace (length l) with (length l0) in IHl by lia. specialize (IHl (rev l0)).
+        rewrite length_rev in IHl. specialize (IHl eq_refl).
+        rewrite rev_involutive in IHl. inversion H. subst. apply IHl in H3.
+        fwd. intuition. Search (_ :: _ ++ _). rewrite app_comm_cons in H.
+        apply app_inv_tail in H. inversion H. subst. simpl. reflexivity.
+  Qed.
+      
+  Lemma possible_traces_sane e s k t m l k1 t1 m1 l1 evt k' :
+    possible e s k t m l k1 t1 m1 l1 ->
+    forall k2 t2 m2 l2,
+    possible e s k t m l k2 t2 m2 l2 ->
+    (exists k1_, k1 = k1_ ++ evt :: k' ++ k) ->
+    (exists k2_, k2 = k2_ ++ k' ++ k) ->
+    exists evt' k2_, k2 = k2_ ++ evt' :: k' ++ k /\ Leakage.q evt = Leakage.q evt'.
+  Proof.
+    intros poss1. induction poss1; intros k2 t2 m2 l2 poss2 pre1 pre2; (inversion poss2; try congruence; []); clear poss2; subst; invert_stuff; fwd; try solve [do 2 eexists; split; [eassumption|reflexivity]].
+    - rewrite <- (rev_involutive k') in *.
+      pose proof H10 as H10'. pose proof poss1 as poss1'.
+      apply possible_extends_trace in H10', poss1'. fwd.
+      rewrite (app_one_l evt), (app_one_l (_ _)) in poss1'.
+      repeat rewrite app_assoc in poss1'. apply app_inv_tail in poss1'.
+      repeat rewrite <- app_assoc in poss1'.
+      destruct (rev k'); simpl in *.
+      + apply app_inv in poss1'; try reflexivity.
+        fwd. rewrite H10'. eexists. eexists. split; [reflexivity|]. reflexivity.
+      + rewrite (app_one_l evt _) in poss1'. do 2 rewrite app_assoc in poss1'.
+        apply app_inv in poss1'; try reflexivity. fwd. rewrite (app_one_l _ k) in H10'.
+        do 3 rewrite app_assoc in H10'. apply app_inv_tail in H10'.
+        apply app_inv in H10'; try reflexivity. fwd.
+        Check anybytes_unique_domain.
+        specialize anybytes_unique_domain with (1 := H2) (2 := 
+        lazymatch goal with
+        | A: map.split ?a1 ?y ?z, B: map.split ?a2 ?y ?z' |- _ =>
+            specialize @map.split_diff with (4 := A) (5 := B) as Q
+        end.
+      edestruct Q; try typeclasses eauto. 2: subst; eauto 10.
+        specialize IHposs1 with (1 := H10). do 2 eexists.
+        rewrite <- app_assoc.
+        fwd.
+        Search (_ ++ _ = _ ++ _). Check app_inv_tail. rewrite poss1, H10. do 2 eexists.
+        split; [reflexivity|]. reflexivity.
   
 End possible_vs_exec.  
     Import List.ListNotations.
