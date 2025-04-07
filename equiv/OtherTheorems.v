@@ -1020,7 +1020,22 @@ Section possible_vs_exec.
       rev l1 = l2 -> l1 = rev l2.
     Proof.
       intros. subst. symmetry. apply rev_involutive. Qed.
-      
+
+    Check compat.
+    Lemma reasonable'_same A B f :
+      f A = f B ->
+      compat B (f B) ->
+      fun_reasonable' f A B.
+    Proof.
+      intros. apply compat'_iff_compat in H0. cbv [Leakage.compat'] in H0.
+      split; [|split].
+      - intros ? ? ? _. rewrite H in H1. destruct H1 as (?&H1). rewrite H1.
+        exists x. f_equal. f_equal. f_equal. rewrite <- app_assoc in H1. apply H0 in H1.
+        f_equal. symmetry. apply H1.
+      - rewrite H. auto.
+      - auto.
+    Qed. 
+
     Lemma reasonable e s k t m l f post :
       exec_nondet e s k t m l post ->
       (forall k' t' m' l', possible e s k t m l k' t' m' l' ->
@@ -1030,7 +1045,35 @@ Section possible_vs_exec.
       let possible_k := (fun k' => exists t' m' l', possible e s k t m l (rev k' ++ k) t' m' l') in
       fun_reasonable (fun o => exists k, possible_k k /\ compat o k) f.
   Proof.
-    intros H possible_k. split; [|split].
+    intros H. induction H; intros H' possible_k A B
+                             (kA&(tA&mA&lA&possA)&compatA) (kB&(tB&mB&lB&possB)&compatB);
+      pose proof (H' _ _ _ _ possA) as H'A; pose proof (H' _ _ _ _ possB) as H'B;
+      destruct H'A as (k'A&H'A&CA); destruct H'B as (k'B&H'B&CB);
+      apply app_inv_tail in H'A, H'B; subst; rewrite rev_involutive in CA, CB; try clear possible_k.
+    - inversion possA. inversion possB. clear possA possB. subst. symmetry in H5, H13.
+      apply id_is_nil in H5, H13. apply rev_nil_nil in H5, H13. subst.
+      specialize (CA A ltac:(constructor)). specialize (CB B ltac:(constructor)).
+      apply reasonable'_same; try rewrite <- CA; try rewrite <- CB; [reflexivity|assumption].
+    - inversion possA. inversion possB. clear possA possB. subst. invert_stuff'.
+      apply app_inv_tail in H3. apply rev_switch in H3. rewrite rev_involutive in H3.
+      subst. specialize (CA A ltac:(assumption)). specialize (CB B ltac:(assumption)).
+      rewrite CB in *. clear CB. apply reasonable'_same; auto.
+    - inversion possA. inversion possB. clear possA possB. subst. symmetry in H5, H14.
+      apply id_is_nil in H5, H14. apply rev_nil_nil in H5, H14. subst.
+      specialize (CA A ltac:(constructor)). specialize (CB B ltac:(constructor)).
+      apply reasonable'_same; try rewrite <- CA; try rewrite <- CB; [reflexivity|assumption].
+    - inversion possA. inversion possB. clear possA possB. subst. invert_stuff'.
+      rewrite H6 in H20. clear H6. apply app_inv_tail in H20.
+      apply rev_switch in H20. rewrite rev_involutive in H20.
+      subst. specialize (CA A ltac:(assumption)). specialize (CB B ltac:(assumption)).
+      rewrite CB in *. clear CB. apply reasonable'_same; auto.
+    - 
+
+      15: { 
+      destruct H0 as (?&H0). rewrite <- app_assoc in H0. apply app_cons_not_nil in H0.
+      destruct H0.
+    - intros H' possible_k. split; [|split].
+    possible_k. split; [|split].
     - intros. cbv beta in *. revert H0 f H k0 b1 H2 H3. fwd. revert A B H1p1.
       unfold possible_k in H1p0. fwd. remember (rev k0 ++ k) as k'0. revert k0 Heqk'0.
       induction H1p0; intros k0 Heqk'0 A B H1' H2' f H' k0' b preA preB; subst.
