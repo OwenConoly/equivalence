@@ -1064,4 +1064,45 @@ Module UseExec.
       epose proof (H' _) as H'. Unshelve. all: cycle 1.
       { clear H'. intros. fwd. specialize (Hp0 A). apply Hp1 in Hp0.
         rewrite rev_involutive in Hp0. apply Hp0. assumption. }
-      destruct H' as (pred&H'). exists pred. intros.
+      destruct H' as (pred&H'). exists pred. intros. rewrite exec_iff_impl_by_strongest_post.
+      split.
+      { eapply weaken. 1: apply (H (fun _ => word.of_Z 0)). auto. }
+      intros. apply H'.
+      { exists e, p0, m, l, t', m', l'. rewrite rev_involutive. auto. }
+      intros. specialize (H A). rewrite exec_iff_impl_by_strongest_post in H.
+      destruct H as (_&H). eapply H; eassumption.
+    Qed.
+
+    (*not actually stated as a theorem in the paper, but stated in words.
+      "predictor constant time is equivalent to constant time".
+      interpret (H e p m l) as saying that e p m l have public state determined by H*)
+    Lemma pred_ct_same_as_ct {T : Type} (g : _ -> T) :
+      excluded_middle ->
+      FunctionalChoice_on ((list event -> word) * (list event -> @Leakage.qevent leakage)) (option (list event)) ->
+      FunctionalChoice_on (list event) (list event) ->
+      FunctionalChoice_on (list event) word ->
+      FunctionalChoice_on T (list event -> @Leakage.qevent leakage) ->
+      forall H,
+      (exists pred,
+        forall e p m l,
+          H e p m l ->
+          exec_nondet e p [] [] m l (fun k t _ _ => predicts (pred (g t)) (rev k))) <->
+        (exists f,
+          forall e p m l,
+            H e p m l ->
+            (forall A, exec_nondet e p [] [] m l (fun k t _ _ => compat A (rev k) -> (rev k) = f (g t) A))).
+    Proof.
+      intros em choice1 choice2 choice3 choice4 H. split.
+      - intros (pred&pred_ct). Check predictors_to_oracles_as_in_paper.
+        pose proof (predictors_to_oracles_as_in_paper pred em choice1) as (f&Hf).
+        exists (fun x y => match f y x with | Some x => x | None => [] end).
+        intros. eapply weaken.
+        { specialize (Hf g e p0 m l). destruct Hf as (Hf&_). apply Hf. apply pred_ct.
+          assumption. }
+        simpl. intros * _ _ * H0 H1. apply H0 in H1. rewrite <- H1. reflexivity.
+      - intros (f&ct). Check oracles_to_predictors_as_in_paper.
+        pose proof (oracles_to_predictors_as_in_paper f g em choice2 choice3 choice4) as (pred&Hpred).
+        exists pred. intros. eapply weaken. 1: apply Hpred; auto. simpl. auto.
+    Qed.      
+  End UseExec.
+End UseExec.
