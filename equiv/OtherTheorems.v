@@ -603,9 +603,16 @@ Section ShortTheorems.
   (*all of this nonsense is just because we allow f to behave arbitrarily badly when
     given a non-possible oracle as input.*)
   Lemma extend_or_not {A : Type} (possible : _ -> Prop) :
+    excluded_middle ->
+    FunctionalChoice_on (list A) (list A) ->
     exists f, forall (k : list A), (exists k', possible (k ++ k')) -> possible (k ++ f k).
-  Proof. Admitted.
-
+  Proof.
+    intros em choice.
+    set (R := fun k fk => (exists k', possible (k ++ k')) -> possible (k ++ fk)).
+    apply (choice R). subst R. intros. simpl. specialize (em (exists k', possible (x ++ k'))).
+    destruct em; fwd; eauto. exists nil. intros. exfalso. auto.
+  Qed.
+  
   Lemma fold_app : (fix app (l m : list Leakage.event) {struct l} : list Leakage.event :=
         match l with
         | nil => m
@@ -724,15 +731,18 @@ Section ShortTheorems.
       rewrite <- pre. apply H; assumption.
   Qed.
   
-  Lemma predictor_from_nowhere f (possible : _ -> Prop) :
+  Lemma predictor_from_nowhere' f (possible : _ -> Prop) :
+    excluded_middle ->
+    FunctionalChoice_on (list event) (list event) ->
     fun_reasonable (fun o => exists k, possible k /\ compat o k) f ->
     exists pred,
     forall k,
       possible k ->
       predicts pred k <-> (forall A, (compat A k -> k = f A)).
   Proof.
-    intros f_reasonable.
-    destruct (extend_or_not possible) as (extend&Hextend).
+    intros em choice f_reasonable.
+    destruct (extend_or_not possible) as (extend&Hextend); [assumption|assumption|].
+    clear em choice.
     remember (fun k => oracle_of_trace (k ++ extend k)) as fn.
     assert (forall k, (exists k', possible (k ++ k')) -> (exists k', possible (k ++ k') /\ compat (fn k) (k ++ k'))) as Hfn.
     { intros k H. specialize (Hextend k H). fwd. exists (extend k). intuition.
@@ -848,6 +858,23 @@ Section ShortTheorems.
                   +++ constructor. assumption.
                   +++ constructor; [reflexivity|]. assumption.
   Qed.
+
+  Lemma predictor_from_nowhere f (possible : _ -> Prop) :
+    excluded_middle ->
+    FunctionalChoice_on (list event) (list event) ->
+    FunctionalChoice_on (list event) B ->
+    (forall k, possible k -> (forall A, (compat A k -> k = f A))) ->
+    exists pred,
+    forall k,
+      possible k ->
+      predicts pred k <-> (forall A, (compat A k -> k = f A)).
+  Proof.
+    intros em choice1 choice2 H. apply predictor_from_nowhere'; [assumption|assumption|].
+    apply f_reasonable; assumption.
+  Qed.
+   
+    
+    
 End ShortTheorems.
 
 Require Import Coq.Relations.Relation_Operators.
