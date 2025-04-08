@@ -219,7 +219,7 @@ Section ShortTheorems.
   Theorem predictors_to_oracles {T T' : Type} :
     excluded_middle ->
     FunctionalChoice_on ((list event -> B) * (list event -> qevent)) (option (list event)) ->
-    forall pred (g : T -> T'), exists f, forall k t,
+    forall pred, exists f, forall (g : T -> T') k t,
       predicts (pred (g t)) k <-> (forall o, (compat o k -> Some k = f o (g t))).
   Proof.
     intros. specialize predictor_plus_oracle_equals_trace with (1 := H) (2 := H0).
@@ -912,3 +912,156 @@ Require Import Coq.Logic.ChoiceFacts.
 
 Require Import Coq.Lists.List.
 Require Import equiv.EquivDefinitions.
+
+Module UseExec.
+  Section UseExec.
+    Context {width: Z} {BW: Bitwidth width} {word: word.word width} {mem: map.map word byte}.
+    Context {locals: map.map String.string word}.
+    Context {env: map.map String.string (list String.string * list String.string * cmd)}.
+    Context {ext_spec: ExtSpec}.
+    Context {word_ok: word.ok word} {mem_ok: map.ok mem} {ext_spec_ok: ext_spec.ok ext_spec}.
+
+    Definition strongest_post e s k t m l k' t' m' l' :=
+      forall P, exec_nondet e s k t m l P -> P k' t' m' l'.
+
+    Ltac intersect_stuff :=
+      try match goal with
+      | H: exec_nondet _ _ _ _ _ _ _ |- _ => inversion H; subst; clear H
+      end;
+      repeat match goal with
+      | H1: ?e = Some (?x1, ?y1, ?z1), H2: ?e = Some (?x2, ?y2, ?z2) |- _ =>
+        replace x2 with x1 in * by congruence;
+          replace y2 with y1 in * by congruence;
+          replace z2 with z1 in * by congruence;
+          clear x2 y2 z2 H2
+        end;
+      repeat match goal with
+      | H1: ?e = Some (?x1, ?z1), H2: ?e = Some (?x2, ?z2) |- _ =>
+        replace x2 with x1 in * by congruence;
+          replace z2 with z1 in * by congruence;
+          clear x2 z2 H2
+      end;
+      repeat match goal with
+             | H1: ?e = Some ?v1, H2: ?e = Some ?v2 |- _ =>
+               replace v2 with v1 in * by congruence; clear H2
+        end.
+    
+    (*infinite intersection lemma*)
+    Lemma exec_to_strongest_post' e s k t m l post :
+      exec_nondet e s k t m l post ->
+      exec_nondet e s k t m l (fun k' t' m' l' => post k' t' m' l' /\ strongest_post e s k t m l k' t' m' l').
+    Proof.
+      intros H. induction H; try solve [econstructor; eauto; intuition; [idtac]; cbv [strongest_post]; intros; intersect_stuff; auto].
+      - econstructor; eauto. intros. eapply weaken. 1: eapply H1; eauto.
+        simpl. intros. fwd. eexists. eexists. intuition eauto 10.
+        cbv [strongest_post]. intros. intersect_stuff.
+        specialize (H15 _ _ _ H2 H3 H4). apply H5p1 in H15. fwd.
+        lazymatch goal with
+      | A: map.split _ _ _, B: map.split _ _ _ |- _ =>
+        specialize @map.split_diff with (4 := A) (5 := B) as Q
+      end.
+      edestruct Q; try typeclasses eauto. 2: subst; eauto 10.
+      eapply anybytes_unique_domain; eassumption.
+      - eapply if_true; eauto. eapply weaken. 1: exact IHexec. simpl. intros.
+        fwd. intuition. cbv [strongest_post]. intros. intersect_stuff. 2: congruence.
+        apply H2p1 in H13. assumption.
+      - eapply if_false; eauto. eapply weaken. 1: exact IHexec. simpl. intros.
+        fwd. intuition. cbv [strongest_post]. intros. intersect_stuff. 1: congruence.
+        apply H2p1 in H13. assumption.
+      - econstructor; eauto. simpl. intros. fwd. eapply weaken. 1: apply H1; auto.
+        simpl. intros. fwd. intuition. cbv [strongest_post]. intros. intersect_stuff.
+        apply H2p1 in H5. apply H11 in H5. apply H2p3 in H5. assumption.
+      - eapply while_false; eauto. intuition. cbv [strongest_post]. intros. intersect_stuff.
+        2: congruence. assumption.
+      - eapply while_true; eauto. simpl. intros. fwd. eapply weaken.
+        1: apply H3(*NOT H2*); assumption. simpl. intros. fwd.
+        intuition. cbv [strongest_post]. intros. intersect_stuff. 1: congruence.
+        Search mid0. apply H4p1 in H9. apply H15 in H9. clear H15. apply H4p3 in H9.
+        assumption.
+      - econstructor; eauto. simpl. intros. fwd. apply H3 in H4p0. fwd. eexists.
+        intuition eauto. eexists. intuition eauto. cbv [strongest_post]. intros.
+        intersect_stuff. Search mid0. apply H4p1 in H16. apply H17 in H16. clear H17.
+        fwd. rewrite H4p0p0 in H16p0. inversion H16p0. subst.
+        rewrite H4p0p1p0 in H16p1p0. inversion H16p1p0. subst. assumption.
+      - econstructor. 1,2: eauto.
+        { eapply ext_spec.intersect. eassumption. }
+        simpl. intros. pose proof H1 as H1'. apply H3 in H1.
+        apply H2 in H1. clear H2.
+        fwd. eexists. intuition eauto. cbv [strongest_post]. intros. intersect_stuff.
+        pose proof ext_spec.unique_mGive_footprint as Q.
+        specialize Q with (1 := H1') (2 := H14).
+        destruct (map.split_diff Q H H7). subst mKeep0 mGive0. clear H7.
+        apply H3 in H14. apply H15 in H14. fwd. apply H14p1 in H1.
+        rewrite H1p0 in H14p0. inversion H14p0. subst.
+        assumption.
+    Qed.
+
+    Lemma exec_to_strongest_post e s k t m l post :
+      exec_nondet e s k t m l post ->
+      exec_nondet e s k t m l (strongest_post e s k t m l).
+    Proof.
+      intros H. eapply weaken. 1: apply exec_to_strongest_post'; eassumption.
+      simpl. intros. fwd. assumption.
+    Qed.
+        
+    Lemma exec_iff_impl_by_strongest_post e s k t m l post :
+      exec_nondet e s k t m l post <->
+        (exec_nondet e s k t m l (fun _ _ _ _ => True) /\ forall k' t' m' l', strongest_post e s k t m l k' t' m' l' -> post k' t' m' l').
+    Proof.
+      split.
+      - intros H. split.
+        + eapply weaken. 1: eassumption. auto.
+        + cbv [strongest_post]. intros * H'. apply H'. apply H.
+      - intros (H1&H2). eapply weaken. 1: eapply exec_to_strongest_post; eassumption.
+        assumption.
+    Qed.
+
+    Import List.ListNotations.
+    
+    Lemma predictors_to_oracles_as_in_paper {T : Type} pred :
+      excluded_middle ->
+      FunctionalChoice_on ((list event -> word) * (list event -> @Leakage.qevent leakage)) (option (list event)) ->
+      exists f,
+      forall (g : _ -> T) e p m l,
+        exec_nondet e p [] [] m l (fun k t _ _ => predicts (pred (g t)) (rev k)) <->
+          (forall A, exec_nondet e p [] [] m l (fun k t _ _ => compat A (rev k) -> Some (rev k) = f A (g t))).
+    Proof.
+      intros em choice.
+      epose proof (predictors_to_oracles (word.of_Z 0) em choice pred) as (f&Hf).
+      exists f. intros. specialize (Hf g).
+      split.
+      - intros H A. rewrite exec_iff_impl_by_strongest_post.
+        rewrite exec_iff_impl_by_strongest_post in H. destruct H as (blah&H).
+        split; [exact blah|]. clear blah. intros * H'. revert A. cbv [compat].
+        rewrite <- Hf. eapply H. eassumption.
+      - intros H. eassert (_ /\ forall A, _) as H'.
+        { pose proof (H (fun _ => word.of_Z 0)) as H'.
+          rewrite exec_iff_impl_by_strongest_post in H'. destruct H' as (H'&_).
+          split; [exact H'|]. clear H'. intros A. specialize (H A).
+          rewrite exec_iff_impl_by_strongest_post in H. destruct H as (?&H). exact H. }
+        rewrite exec_iff_impl_by_strongest_post. destruct H' as (blah&H').
+        split; [exact blah|]. clear blah. intros. cbv [predicts]. rewrite Hf.
+        intros. eapply H'; eassumption.
+    Qed.
+
+    (*rmk: why does pred depend on g?  becuase we only have control
+      over how f behaves when f is given outputs of g as input.  on other
+      input, f can behave in silly ways.  the construction of pred from f 
+      requires having some inputs on which f does not behave in silly ways.*)
+    Lemma oracles_to_predictors_as_in_paper {T : Type} f (g : _ -> T) :
+      excluded_middle ->
+      FunctionalChoice_on (list event) (list event) ->
+      FunctionalChoice_on (list event) word ->
+      FunctionalChoice_on T (list event -> @Leakage.qevent leakage) ->
+      exists pred,
+      forall e p m l,
+        (forall A, exec_nondet e p [] [] m l (fun k t _ _ => compat A (rev k) -> (rev k) = f (g t) A)) ->
+        exec_nondet e p [] [] m l (fun k t _ _ => predicts (pred (g t)) (rev k)).
+    Proof.
+      intros em choice1 choice2 choice3.
+      pose proof (@predictor_from_nowhere leakage word (word.of_Z 0) T f (fun gt' k' => exists e p m l t' m' l', (forall A, exec_nondet e p [] [] m l (fun k t _ _ => compat A (rev k) -> (rev k) = f (g t) A)) /\ strongest_post e p [] [] m l (rev k') t' m' l' /\ gt' = g t')) as H'.
+      specialize (H' em choice1 choice2 choice3). simpl in H'.
+      epose proof (H' _) as H'. Unshelve. all: cycle 1.
+      { clear H'. intros. fwd. specialize (Hp0 A). apply Hp1 in Hp0.
+        rewrite rev_involutive in Hp0. apply Hp0. assumption. }
+      destruct H' as (pred&H'). exists pred. intros.
