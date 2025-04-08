@@ -1,3 +1,4 @@
+# What is this
 This repository contains proofs of theorems from the paper "Smooth, Integrated Proofs of Cryptographic Constant Time for Nondeterministic Programs and Compilers".  (TODO: add doi or something)
 
 Here is a list of the theorems in the paper and the corresponding proofs in this repository.
@@ -9,3 +10,7 @@ Here is a list of the theorems in the paper and the corresponding proofs in this
 * claim that "predictor constant time is equivalent to constant time": `Theorem pred_ct_same_as_ct`, file `equiv/OtherTheorems.v`
 * Theorem C.3: `Theorem trace_trees_are_predictors`, file `equiv/OtherTheorems.v`
 * Lemma D.1: `Lemma append_predictors`, file `equiv/OtherTheorems.v`
+
+# Version of Coq that works:
+The Coq Proof Assistant, version 8.20.0
+compiled with OCaml 5.3.0
