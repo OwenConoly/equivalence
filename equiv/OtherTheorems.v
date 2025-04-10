@@ -68,12 +68,30 @@ Section ShortTheorems.
   | tree_leak (l : L) (rest : trace_tree)
   | tree_branch (rest : B -> trace_tree).
 
+  CoInductive co_trace_tree : Type :=
+  | co_tree_leaf
+  | co_tree_leak (l : L) (rest : co_trace_tree)
+  | co_tree_branch (rest : B -> co_trace_tree).
+
+  Lemma unfold_one (cot : co_trace_tree) :
+    cot = match cot with
+          | co_tree_leaf => co_tree_leaf
+          | co_tree_leak l rest => co_tree_leak l rest
+          | co_tree_branch rest => co_tree_branch rest
+          end.
+  Proof. destruct cot; reflexivity. Qed.
+
   (*Definition C.1 of the paper*)
   Inductive path : trace_tree -> list event -> Prop :=
   | nil_path : path tree_leaf nil
   | leak_path x k tree : path tree k -> path (tree_leak x tree) (leak x :: k)
   | branch_path k f x : path (f x) k -> path (tree_branch f) (branch x :: k).
 
+  Inductive co_path : co_trace_tree -> list event -> Prop :=
+  | co_nil_path : co_path co_tree_leaf nil
+  | co_leak_path x k tree : co_path tree k -> co_path (co_tree_leak x tree) (leak x :: k)
+  | co_branch_path k f x : co_path (f x) k -> co_path (co_tree_branch f) (branch x :: k).
+  
   Fixpoint predictor_of_trace_tree (tree : trace_tree) : (list event -> qevent) :=
     fun k =>
       match tree, k with
@@ -112,6 +130,32 @@ Section ShortTheorems.
         -- inversion H'. subst. simpl in H3. inversion H3.
         -- inversion H'. subst. simpl in H3. inversion H3. subst. constructor.
            apply H. simpl in H4. apply H4.
+  Qed.
+
+  CoFixpoint co_trace_tree_of_predictor (pred : list event -> qevent) : co_trace_tree :=
+    match pred nil with
+    | qend => co_tree_leaf
+    | qleak x => co_tree_leak x (co_trace_tree_of_predictor (fun k => pred (leak x :: k)))
+    | qbranch => co_tree_branch (fun x => co_trace_tree_of_predictor (fun k => pred (branch x :: k)))
+    end.
+
+  Lemma predictors_are_co_trace_trees :
+    forall pred, exists co_tree, forall k,
+      co_path co_tree k <-> predicts pred k.
+  Proof.
+    intros pred. exists (co_trace_tree_of_predictor pred). intros k. split; intros H.
+    - revert pred H. induction k; intros pred H.
+      + rewrite (unfold_one _) in H. simpl in H. constructor.
+        destruct (pred nil); inversion H. reflexivity.
+      + rewrite (unfold_one _) in H. simpl in H.
+        destruct (pred nil) eqn:E; inversion H; subst.
+        -- constructor; [assumption|]. apply IHk. assumption.
+        -- constructor; [assumption|]. apply IHk. assumption.
+    - induction H.
+      + rewrite (unfold_one _). simpl. rewrite H. constructor.
+      + rewrite (unfold_one _). simpl. rewrite H. destruct e; simpl.
+        -- constructor. assumption.
+        -- constructor. assumption.
   Qed.
 
   Fixpoint trace_of_predictor_and_oracle pred o fuel : option (list event) :=
@@ -1103,6 +1147,27 @@ Module UseExec.
       - intros (f&ct). Check oracles_to_predictors_as_in_paper.
         pose proof (oracles_to_predictors_as_in_paper f g em choice2 choice3 choice4) as (pred&Hpred).
         exists pred. intros. eapply weaken. 1: apply Hpred; auto. simpl. auto.
-    Qed.      
+    Qed.
+
+    Print trace_tree.
+
+    Lemma pred_ct_impl_tree_ct pred :
+      exists tree,
+        forall 
+      exec_nondet e s k t m l post ->
+      forall pred,
+        (forall k' t' m' l', post k' t' m' l' -> exists k'', k' = k'' ++ k /\ predicts pred (rev k'')) ->
+        exists tree,
+          exec_nondet e s k t m l (fun k' _ _ _ => exists k'', k' = k'' ++ k /\ path tree (rev k'')).
+    Proof.
+      intros H. induction H; intros pred Hpost; try match goal with | H: post _ _ _ _ |- _ => apply Hpost in H end; fwd.
+      - 
+
+
+        Search (_ = _ ++ _ -> _ = _). assert ([] ++ k = k'' ++ k) as Hp0' by assumption.
+        clear Hp0. apply app_inv_tail in Hp0'. subst. inversion Hp1. subst.
+                                                                              apply id_is_nil in Hp0.
+      
+      
   End UseExec.
 End UseExec.
