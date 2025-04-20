@@ -571,7 +571,7 @@ Section ShortTheorems.
       eexists. reflexivity.
   Qed.
 
-  Lemma fun_reasonable_other (possible : _ -> Prop) f x :
+    Lemma fun_reasonable_other (possible : _ -> Prop) f x :
     fun_reasonable (fun o => exists k, possible k /\ compat o k) f ->
     fun_reasonable
     (fun o' : list event -> B => exists k, possible (x :: k) /\ compat o' k)
@@ -644,19 +644,9 @@ Section ShortTheorems.
       inversion Hend. do 2 rewrite <- H1. reflexivity.
   Qed.
 
-  (*all of this nonsense is just because we allow f to behave arbitrarily badly when
-    given a non-possible oracle as input.*)
-  Lemma extend_or_not {A : Type} (possible : _ -> Prop) :
-    excluded_middle ->
-    FunctionalChoice_on (list A) (list A) ->
-    exists f, forall (k : list A), (exists k', possible (k ++ k')) -> possible (k ++ f k).
-  Proof.
-    intros em choice.
-    set (R := fun k fk => (exists k', possible (k ++ k')) -> possible (k ++ fk)).
-    apply (choice R). subst R. intros. simpl. specialize (em (exists k', possible (x ++ k'))).
-    destruct em; fwd; eauto. exists nil. intros. exfalso. auto.
-  Qed.
-  
+  Definition predictor_of_fun_alt' extend (f : (list event -> B) -> list event) (k : list event) :=
+    let full_trace := f (oracle_of_trace (k ++ extend k)) in get_next k full_trace.
+
   Lemma fold_app : (fix app (l m : list Leakage.event) {struct l} : list Leakage.event :=
         match l with
         | nil => m
@@ -686,17 +676,30 @@ Section ShortTheorems.
   Qed.
 
   Lemma compat_ext' f g k:
-      (forall k', f k' = g k') ->
-      compat f k ->
-      compat g k.
-    Proof.
-      intros H1 H2. revert H1. revert g. induction H2.
-      - intros. constructor.
-      - intros. constructor.
-        + rewrite <- H1. apply H.
-        + apply IHcompat. intros. apply H1.
-      - intros. constructor. apply IHcompat. auto.
-    Qed.
+    (forall k', f k' = g k') ->
+    compat f k ->
+    compat g k.
+  Proof.
+    intros H1 H2. revert H1. revert g. induction H2.
+    - intros. constructor.
+    - intros. constructor.
+      + rewrite <- H1. apply H.
+      + apply IHcompat. intros. apply H1.
+    - intros. constructor. apply IHcompat. auto.
+  Qed.
+
+  Lemma prefix_same k1 k2 f (possible : _ -> Prop) :
+    (forall k, possible k -> (forall A, compat A k -> f A = k)) ->
+    possible k1 ->
+    possible k2 ->
+    prefix k1 k2 ->
+    k1 = k2.
+  Proof.
+    intros H1 H2 H3 H4. pose proof (H1 k2 H3 _ (oracle_of_trace_works _)) as H1'.
+    rewrite <- H1'. symmetry. apply H1; [assumption|].
+    destruct H4. subst. pose proof (oracle_of_trace_works (k1 ++ x)) as H2'.
+    apply compat_app_inv in H2'. fwd. assumption.
+  Qed.
 
   Lemma f_reasonable f (possible : _ -> Prop) :
     excluded_middle (*we only use this to say that eq of L, B is decidable*) ->
@@ -773,6 +776,143 @@ Section ShortTheorems.
     - intros pre. destruct pre as (?&pre). rewrite pre in *.
       apply compat_app_inv in compat2. destruct compat2 as (compat2&_).
       rewrite <- pre. apply H; assumption.
+  Qed.
+
+  Lemma predictor_of_fun_alt'_correct possible extend f k :
+    excluded_middle ->
+    FunctionalChoice_on (list event) B ->
+    (forall k, possible k -> (forall A, compat A k -> k = f A)) ->
+    (forall k, (exists k', possible (k ++ k')) -> possible (k ++ extend k)) ->
+    (exists k', possible (k ++ k')) ->
+    forall o,
+    (forall k_, o k_ = oracle_of_trace (k ++ extend k) k_) ->
+    predictor_of_fun o f k = predictor_of_fun_alt' extend f k.
+  Proof.
+    intros em choice.
+    revert f extend possible. induction k; intros.
+    - simpl. cbv [predictor_of_fun_alt']. simpl.
+      pose proof (f_reasonable f possible ltac:(assumption) ltac:(assumption) ltac:(assumption)) as R.
+      rewrite <- (H (extend [])); cycle 1.
+      { specialize (H0 nil H1). apply H0. }
+      { eapply compat_ext'. 2: apply oracle_of_trace_works. auto. }
+      rewrite <- (H (extend [])); cycle 1.
+      { specialize (H0 nil H1). apply H0. }
+      { apply oracle_of_trace_works. }
+      reflexivity.
+    - simpl. erewrite (IHk _ (fun k => extend (a :: k)) (fun k => possible (a :: k))).
+      + cbv [predictor_of_fun_alt']. simpl. Print predictor_of_fun_alt'. rewrite <- (H (a :: k ++ extend (a :: k))); cycle 1.
+        { specialize (H0 _ H1). apply H0. }
+        { destruct a.
+          - constructor. apply oracle_of_trace_works.
+          - constructor; [reflexivity|]. apply oracle_of_trace_works. }
+        rewrite <- (H (a :: k ++ extend (a :: k))); cycle 1.
+        { specialize (H0 _ H1). apply H0. }
+        { destruct a.
+          - constructor. apply oracle_of_trace_works.
+          - constructor; [reflexivity|]. apply oracle_of_trace_works. }
+        reflexivity.
+      + intros. rewrite <- (H (a :: k0)); auto. destruct a.
+        -- constructor. assumption.
+        -- constructor; [reflexivity|assumption].
+      + intros. specialize (H0 (a :: k0) H3). apply H0.
+      + apply H1.
+      + intros. rewrite H2. simpl. destruct a; reflexivity.
+  Qed.
+
+  Print predictor_of_fun_alt'.
+
+  (* Lemma predictor_of_fun_sane o f (possible : _ -> Prop) : *)
+  (*   excluded_middle ->  *)
+  (*   FunctionalChoice_on (list event) (list event) ->  *)
+  (*   fun_reasonable possible f -> *)
+  (*   Acc (lt (predictor_of_fun o f)) nil. *)
+  (* Proof. *)
+  (*   intros em choice Hf. *)
+
+  (* Print predictor_of_fun_alt'. *)
+  (* Lemma predictor_of_fun'_has_a_tree possible extend f : *)
+  (*   excluded_middle -> *)
+  (*   FunctionalChoice_on (list event) B -> *)
+  (*   exists tree, *)
+  (*   (forall k, possible k -> (forall A, compat A k -> k = f A)) -> *)
+  (*   (forall k, (exists k', possible (k ++ k')) -> possible (k ++ extend k)) -> *)
+  (*   forall k, *)
+  (*     possible k -> *)
+  (*     predicts (predictor_of_fun_alt' extend f) k <-> path tree k. *)
+  (* Proof. *)
+  (*   intros em choice. Print predictor_of_fun_alt'. *)
+
+  
+
+  (* Inductive lt2 : (list event -> qevent) -> (list event -> qevent) -> Prop := *)
+  (* | lt_cons2 p e : p nil = q e -> lt2 (fun k => p (e :: k)) p. *)
+  
+  (* Require Import Lia. Print Acc. *)
+
+  (* Check chains_finite_implies_Acc. *)
+  (* (*idea: suppose not.  then you get an infinite chain of trace events. *)
+  (*   get an oracle for this chain.  apply f to this oracle.*) *)
+  (* Lemma predictor_of_fun_sane o f (possible : _ -> Prop) : *)
+  (*   fun_reasonable possible f -> *)
+  (*   (forall o, possible o \/ f o = nil) -> *)
+  (*   (* excluded_middle -> *) *)
+  (*   (* FunctionalChoice_on (list event) (list event) -> *) *)
+  (*   Acc lt2 (predictor_of_fun o f). *)
+  (* Proof. *)
+  (*   remember (f o) as l eqn:El. revert possible o f El. induction l. *)
+  (*   - intros. constructor. intros y Hy. inversion Hy. subst. simpl in H1. *)
+  (*     rewrite <- El in H1. destruct e; discriminate H1. *)
+  (*   - intros. constructor. intros y Hy. inversion Hy. subst. *)
+  (*     simpl. *)
+  (*     set (o' := (fun k_ : list event => *)
+  (*      match k_ with *)
+  (*      | [] => match e with *)
+  (*              | leak _ => B_inhabited *)
+  (*              | branch b => b *)
+  (*              end *)
+  (*      | _ :: k_' => o (e :: k_') *)
+  (*      end)). *)
+  (*     destruct (f o') eqn:E. *)
+  (*     { clear -E. constructor. intros y Hy. inversion Hy. subst. simpl in H. *)
+  (*       fold o' in H. rewrite E in H. destruct e0; discriminate H. } *)
+  (*     pose proof (H0 o) as Ho. destruct Ho as [Ho|Ho]; cycle 1. *)
+  (*     { rewrite Ho in El. discriminate El. } *)
+  (*     pose proof (H0 o') as Ho'. destruct Ho' as [Ho'|Ho']; cycle 1. *)
+  (*     { rewrite Ho' in E. discriminate E. } *)
+  (*     eapply IHl. *)
+  (*     + fold o'. rewrite E. enough (H2: f o = f o'). *)
+  (*       { rewrite E, <- El in H2. inversion H2. subst. reflexivity. } *)
+  (*       apply reasonable_ext. 1,2,3: apply H; assumption. intros k b (k'&Hk'). *)
+  (*       pose proof (H o o Ho Ho) as Hoo. destruct Hoo as (Hbranchoo&_&_). *)
+  (*       destruct k. *)
+  (*       { simpl in Hk'. Search e. simpl in H1. rewrite Hk' in H1. Search a. *)
+  (*         destruct e; try discriminate H1. subst o'. simpl. *)
+  (*         specialize (Hbranchoo nil b). eassert _ as garbage. *)
+  (*         2: specialize (Hbranchoo garbage). *)
+  (*         { exists k'. simpl. assumption. } *)
+  (*         clear garbage. specialize (Hbranchoo ltac:(eexists; reflexivity)). *)
+  (*         simpl in Hbranchoo. destruct Hbranchoo as (?&Hbranchoo). *)
+  (*         rewrite Hbranchoo in Hk'. inversion Hk'. subst. Search val. *)
+  (*       pose proof ( *)
+  (*     rewrite <- El in H1. *)
+  (*   revert f possible. *)
+  (*   intros Hf1 Hf2.  *)
+    
+  (* Abort. *)
+
+
+
+  (*all of this nonsense is just because we allow f to behave arbitrarily badly when
+    given a non-possible oracle as input.*)
+  Lemma extend_or_not {A : Type} (possible : _ -> Prop) :
+    excluded_middle ->
+    FunctionalChoice_on (list A) (list A) ->
+    exists f, forall (k : list A), (exists k', possible (k ++ k')) -> possible (k ++ f k).
+  Proof.
+    intros em choice.
+    set (R := fun k fk => (exists k', possible (k ++ k')) -> possible (k ++ fk)).
+    apply (choice R). subst R. intros. simpl. specialize (em (exists k', possible (x ++ k'))).
+    destruct em; fwd; eauto. exists nil. intros. exfalso. auto.
   Qed.
   
   Lemma predictor_from_nowhere'' f (possible : _ -> Prop) :
@@ -933,6 +1073,18 @@ Section ShortTheorems.
     set (R := fun t predt => forall k, possible t k -> predicts predt k <-> (forall A, compat A k -> k = f t A)).
     apply (choice3 R). subst R. intros. apply H'. apply H.
   Qed.
+
+  Check predictor_of_fun.
+(*To get a trace tree from a predictor, I want to say something about a predictor being
+  well-founded, or something.
+  obviously this is not true for an arbitrary predictor.
+  there are probably more-direct ways to do this, but one approach to making a predictor
+  nice is to first use predictor_of_oracle_and_trace to get a function taking oracles
+  to traces, and then use predictor_of_fun to get a nice predictor.*)
+
+  Check trace_of_predictor_and_oracle.
+  
+          
 End ShortTheorems.
 
 Require Import Coq.Relations.Relation_Operators.
@@ -1149,25 +1301,96 @@ Module UseExec.
         exists pred. intros. eapply weaken. 1: apply Hpred; auto. simpl. auto.
     Qed.
 
-    Print trace_tree.
+    Inductive lt pred (possible : list event -> Prop) : list event -> list event -> Prop :=
+    | lt_cons k e : pred k = Leakage.q e ->
+                    (exists k', possible (k ++ [e] ++ k')) ->
+                    lt pred possible (k ++ [e]) k.
 
-    Lemma pred_ct_impl_tree_ct pred :
+    Lemma tree_of_pred (pred : list event -> Leakage.qevent) (possible : list event -> Prop) k :
+      excluded_middle ->
+      FunctionalChoice_on word (@trace_tree leakage word) ->
+      Acc (lt pred possible) k ->
       exists tree,
-        forall 
-      exec_nondet e s k t m l post ->
-      forall pred,
-        (forall k' t' m' l', post k' t' m' l' -> exists k'', k' = k'' ++ k /\ predicts pred (rev k'')) ->
-        exists tree,
-          exec_nondet e s k t m l (fun k' _ _ _ => exists k'', k' = k'' ++ k /\ path tree (rev k'')).
+      forall k', possible (k ++ k') ->
+            forall p, (forall k_, p k_ = pred (k ++ k_)) ->
+                 path tree k' <-> predicts p k'.
     Proof.
-      intros H. induction H; intros pred Hpost; try match goal with | H: post _ _ _ _ |- _ => apply Hpost in H end; fwd.
-      - 
+      intros em choice H. induction H. destruct (pred x) eqn:E.
+      - specialize (H0 (x ++ [leak val])).
+        pose proof (em (exists k', possible (x ++ [leak val] ++ k'))) as H'.
+        destruct H' as [(k'&H')|H'].
+        + eassert _ as garbage. 2: specialize (H0 garbage).
+          { constructor; [assumption|]. eauto. }
+          destruct H0 as (tree&H0). exists (tree_leak val tree).
+          intros k0 Hk0. split.
+          -- intros Hpath. inversion Hpath. subst. constructor.
+             ++ rewrite H1. rewrite app_nil_r. assumption.
+             ++ apply H0.
+                --- rewrite <- app_assoc. assumption.
+                --- intros. rewrite H1. rewrite <- app_assoc. reflexivity.
+                --- assumption.
+          -- intros Hpred. inversion Hpred; subst.
+             ++ rewrite H1 in H2. rewrite app_nil_r in H2. rewrite E in H2.
+                destruct val; discriminate H2.
+             ++ rewrite H1 in H2. rewrite app_nil_r in H2. rewrite E in H2.
+                destruct e; try discriminate H2. simpl in H2. inversion H2. subst.
+                clear H2. constructor. rewrite H0.
+                --- eassumption.
+                --- rewrite <- app_assoc. assumption.
+                --- simpl. intros. rewrite H1. rewrite <- app_assoc. reflexivity.
+        + exists (tree_leak val tree_leaf). intros. split.
+          -- intros Hpath. exfalso. inversion Hpath. subst. apply H'.
+             exists k. assumption.
+          -- intros Hpred. exfalso. inversion Hpred; subst.
+             ++ rewrite H2, app_nil_r, E in H3. discriminate H3.
+             ++ rewrite H2, app_nil_r, E in H3. destruct e; inversion H3. subst.
+                apply H'. exists k. assumption.
+      - set (R := fun b fb =>
+                    forall k' : list event,
+                      possible (x ++ [branch b] ++ k') ->
+                      forall p : list event -> Leakage.qevent,
+                        (forall k_ : list event, p k_ = pred (x ++ [branch b] ++ k_)) -> path fb k' <-> predicts p k').
+        specialize (choice R). eassert _ as garbage. 2: specialize (choice garbage).
+        + intros. specialize (H0 (x ++ [branch x0])).
+          pose proof (em (exists k', possible (x ++ [branch x0] ++ k'))) as H'.
+          destruct H' as [(k'&H')|H'].
+          -- eassert _ as garbage. 2: specialize (H0 garbage).
+             { constructor; [assumption|]. exists (k'). assumption. }
+             destruct H0 as (tree&Htree). exists tree. subst R. simpl. intros. split.
+             ++ intros Hpath. rewrite <- Htree.
+                --- assumption.
+                --- rewrite <- app_assoc. assumption.
+                --- intros. rewrite <- app_assoc. auto.
+             ++ intros Hpred. rewrite Htree.
+                --- eassumption.
+                --- rewrite <- app_assoc. assumption.
+                --- intros. rewrite <- app_assoc. auto.
+          -- exists (tree_branch (fun _ => tree_leaf)). subst R. simpl. intros.
+             exfalso. apply H'. exists k'. assumption.
+        + clear garbage. destruct choice as (tree&Htree). exists (tree_branch tree).
+          intros. split.
+          -- intros Hpath. inversion Hpath. subst. constructor.
+             ++ rewrite H2, app_nil_r, E. reflexivity.
+             ++ subst R. simpl in Htree. cbv [predicts] in Htree. rewrite <- Htree.
+                --- eassumption.
+                --- assumption.
+                --- intros. rewrite H2. reflexivity.
+          -- intros Hpred. inversion Hpred; subst.
+             ++ rewrite H2, app_nil_r, E in H3. discriminate H3.
+             ++ rewrite H2, app_nil_r, E in H3. destruct e; inversion H3.
+                constructor. subst R. simpl in Htree. rewrite Htree.
+                --- eassumption.
+                --- assumption.
+                --- simpl. intros. rewrite H2. reflexivity.
+      - exists tree_leaf. intros. split.
+        + intros Hpath. inversion Hpath. subst. constructor. rewrite H2, app_nil_r.
+          assumption.
+        + intros Hpred. inversion Hpred; subst.
+          -- constructor.
+          -- rewrite H2, app_nil_r, E in H3. destruct e; discriminate H3.
+    Qed.
 
-
-        Search (_ = _ ++ _ -> _ = _). assert ([] ++ k = k'' ++ k) as Hp0' by assumption.
-        clear Hp0. apply app_inv_tail in Hp0'. subst. inversion Hp1. subst.
-                                                                              apply id_is_nil in Hp0.
-      
-      
+    (*thoughts: pred_to_tree thing does not work if set of possible oracles can depend on program state.
+      counterexample: program that starts by owning all of memory except bottom n bytes (n secret input).  repeatedly does stackalloc 1 until gets the number 0.*)
   End UseExec.
 End UseExec.
