@@ -158,6 +158,38 @@ Section ShortTheorems.
         -- constructor. assumption.
   Qed.
 
+  Fixpoint predictor_of_co_trace_tree (co_tree : co_trace_tree) (k : list event) : qevent :=
+    match co_tree, k with
+      | co_tree_leaf, nil => qend
+      | co_tree_leak l co_tree', nil => qleak l
+      | co_tree_branch co_tree', nil => qbranch
+      | co_tree_leak l1 co_tree', leak l2 :: k' => predictor_of_co_trace_tree co_tree' k'
+      | co_tree_branch co_tree', branch b :: k' => predictor_of_co_trace_tree (co_tree' b) k'
+      | _, _ => (*input is garbage, return whatever*) qend
+      end.
+  
+  Lemma co_trace_trees_are_predictors :
+    forall co_tree, exists pred, forall k,
+      predicts pred k <-> co_path co_tree k.
+  Proof.
+    intros. exists (predictor_of_co_trace_tree co_tree). intros.
+    split; intros H.
+    - revert k co_tree H. induction k; intros co_tree H.
+      + inversion H. subst. destruct co_tree; simpl in H0; try discriminate H0.
+        constructor.
+      + destruct a.
+        -- inversion H. subst. destruct co_tree; simpl in H3; try discriminate H3.
+           inversion H3. subst. constructor. apply IHk. assumption.
+        -- inversion H. subst. destruct co_tree; simpl in H3; try discriminate H3.
+           inversion H3. subst. constructor. apply IHk. assumption.
+    - induction H.
+      + constructor. reflexivity.
+      + constructor; [reflexivity|]. assumption.
+      + constructor; [reflexivity|]. assumption.
+  Qed.
+
+
+
   Fixpoint trace_of_predictor_and_oracle pred o fuel : option (list event) :=
     match fuel with
     | O => None
