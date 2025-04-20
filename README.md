@@ -9,6 +9,7 @@ Here is a list of the theorems in the paper and the corresponding proofs in this
 * Theorem 5.5: `Theorem predictor_from_nowhere` and `Theorem oracles_to_predictors_as_in_paper`, file `equiv/OtherTheorems.v`
 * claim that "predictor constant time is equivalent to constant time": `Theorem pred_ct_same_as_ct`, file `equiv/OtherTheorems.v`
 * Theorem C.3: `Theorem trace_trees_are_predictors`, file `equiv/OtherTheorems.v`
+* Theorem C.6: `Lemma predictors_are_co_trace_trees` and `Lemma co_trace_trees_are_predictors`, file `equiv/OtherTheorems.v`
 * Lemma D.1: `Lemma append_predictors`, file `equiv/OtherTheorems.v`
 
 # Version of Coq that works:
